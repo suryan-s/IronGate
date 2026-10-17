@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore IronGate.slnx
+
+      - name: Build
+        run: dotnet build IronGate.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test IronGate.slnx --configuration Release --no-build
