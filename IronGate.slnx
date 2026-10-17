@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/IronGate/IronGate.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/IronGate.Tests/IronGate.Tests.csproj" />
+  </Folder>
+</Solution>
