@@ -1,7 +1,6 @@
-using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.IdentityModel.Tokens;
+using IronGate.Abstractions;
 
 namespace IronGate.Extensions;
 
@@ -9,31 +8,9 @@ public static class AuthExtensions
 {
     public static IServiceCollection AddIronGateAuth(this IServiceCollection services, IConfiguration config)
     {
-        IConfigurationSection keycloak = config.GetSection("Keycloak");
-        string? authority = keycloak["Authority"];
-        string? audience = keycloak["Audience"];
-        bool requireHttpsMetadata = keycloak.GetValue<bool>("RequireHttpsMetadata");
-
-        services
-            .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-            .AddJwtBearer(options =>
-            {
-                options.Authority = authority;
-                options.Audience = audience;
-                options.RequireHttpsMetadata = requireHttpsMetadata;
-
-                options.TokenValidationParameters = new TokenValidationParameters
-                {
-                    ValidateIssuer = true,
-                    ValidateAudience = true, // enabled once dedicated irongate client is configured
-                    ValidateLifetime = true,
-                    ClockSkew = TimeSpan.FromSeconds(15)
-                };
-            });
-
-        services.AddAuthorizationBuilder()
-            .AddPolicy("jwt-required", policy => policy.RequireAuthenticatedUser());
-
-        return services;
+        // Register identity providers and configure auth using the extension methods
+        return services
+            .AddIdentityProviders(config)
+            .AddIronGateAuthInternal(config);
     }
 }

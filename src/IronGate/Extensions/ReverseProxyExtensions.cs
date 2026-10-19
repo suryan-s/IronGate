@@ -1,9 +1,9 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using System.Security.Claims;
-using System.Text.Json;
 using Yarp.ReverseProxy.Configuration;
 using Yarp.ReverseProxy.Transforms;
+using IronGate.Abstractions;
 
 namespace IronGate.Extensions;
 
@@ -11,6 +11,13 @@ public static class ReverseProxyExtensions
 {
     public static IServiceCollection AddIronGateReverseProxy(this IServiceCollection services, IConfiguration config)
     {
+        // Build a temporary provider to get the IDP registry
+        var tempProvider = services.BuildServiceProvider();
+        var registry = tempProvider.GetRequiredService<IIdentityProviderRegistry>();
+
+        string idpName = config["IdentityProvider:Default"] ?? "keycloak";
+        var provider = registry.GetRequiredProvider(idpName);
+
         services
             .AddReverseProxy()
             .LoadFromConfig(config.GetSection("ReverseProxy"))
@@ -23,12 +30,10 @@ public static class ReverseProxyExtensions
 
                     ClaimsPrincipal user = transformContext.HttpContext.User;
                     if (user.Identity?.IsAuthenticated != true) return ValueTask.CompletedTask;
-                    // Try standard claims first, fall back to Keycloak-specific ones
-                    string? userId = user.FindFirstValue(ClaimTypes.NameIdentifier)
-                                     ?? user.FindFirstValue("sub")
-                                     ?? user.FindFirstValue("azp"); // Keycloak: authorized party (client ID)
-                    string? username = user.FindFirstValue("preferred_username")
-                                       ?? user.FindFirstValue("scope"); // Fallback to scope
+
+                    // Use IDP adapter for claim extraction
+                    string? userId = provider.GetUserId(user);
+                    string? username = provider.GetUsername(user);
 
                     if (!string.IsNullOrEmpty(userId))
                     {
@@ -49,49 +54,9 @@ public static class ReverseProxyExtensions
                     ClaimsPrincipal user = transformContext.HttpContext.User;
                     if (user.Identity?.IsAuthenticated != true) return ValueTask.CompletedTask;
 
-                    string? userId = user.FindFirstValue(ClaimTypes.NameIdentifier)
-                                     ?? user.FindFirstValue("sub")
-                                     ?? user.FindFirstValue("azp");
-                    string? username = user.FindFirstValue("preferred_username")
-                                       ?? user.FindFirstValue("scope");
-                    
-                    // Extract roles from realm_access and resource_access (Keycloak format)
-                    var roles = new List<string>();
-                    var realmAccess = user.FindFirst("realm_access")?.Value;
-                    if (!string.IsNullOrEmpty(realmAccess))
-                    {
-                        try
-                        {
-                            using var doc = JsonDocument.Parse(realmAccess);
-                            if (doc.RootElement.TryGetProperty("roles", out var rolesElement) && rolesElement.ValueKind == JsonValueKind.Array)
-                            {
-                                roles.AddRange(rolesElement.EnumerateArray().Select(r => r.GetString()!).Where(r => !string.IsNullOrEmpty(r)));
-                            }
-                        }
-                        catch { }
-                    }
-                    var resourceAccess = user.FindFirst("resource_access")?.Value;
-                    if (!string.IsNullOrEmpty(resourceAccess))
-                    {
-                        try
-                        {
-                            using var doc = JsonDocument.Parse(resourceAccess);
-                            foreach (var client in doc.RootElement.EnumerateObject())
-                            {
-                                if (client.Value.TryGetProperty("roles", out var clientRoles) && clientRoles.ValueKind == JsonValueKind.Array)
-                                {
-                                    roles.AddRange(clientRoles.EnumerateArray().Select(r => r.GetString()!).Where(r => !string.IsNullOrEmpty(r)));
-                                }
-                            }
-                        }
-                        catch { }
-                    }
-                    // Fallback to standard role claims
-                    if (roles.Count == 0)
-                    {
-                        roles.AddRange(user.FindAll(ClaimTypes.Role).Select(c => c.Value));
-                        roles.AddRange(user.FindAll("roles").Select(c => c.Value));
-                    }
+                    string? userId = provider.GetUserId(user);
+                    string? username = provider.GetUsername(user);
+                    var roles = provider.GetRoles(user);
 
                     if (!string.IsNullOrEmpty(userId))
                     {
