@@ -1,15 +1,23 @@
 using IronGate.Extensions;
+using IronGate.Middleware;
 using Yarp.ReverseProxy.Configuration;
 
-var builder = WebApplication.CreateBuilder(args);
+WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 builder.Services
     .AddIronGateAuth(builder.Configuration)
-    .AddIronGateReverseProxy(builder.Configuration);
+    .AddIronGateReverseProxy(builder.Configuration)
+    .AddIronGateOtel(builder.Configuration);
 
-var app = builder.Build();
+WebApplication app = builder.Build();
+
+// Correlation ID must be first to capture all requests
+app.UseCorrelationId();
 
 app.MapGet("/healthz", () => Results.Ok(new { status = "healthy", service = "IronGate" }));
+
+// Prometheus metrics endpoint
+app.MapPrometheusScrapingEndpoint();
 
 app.UseAuthentication();
 app.UseAuthorization();

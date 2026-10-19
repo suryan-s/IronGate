@@ -10,6 +10,92 @@ services:
       - "8080:8080"
     volumes:
       - keycloak-data:/opt/keycloak/data
+    networks:
+      - irongate-network
+
+  # OpenTelemetry Collector - receives traces/metrics/logs and forwards to backends
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.118.0
+    command: ["--config=/etc/otelcol-config.yaml"]
+    volumes:
+      - ./otel-collector-config.yaml:/etc/otelcol-config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+      - "8889:8889"   # Prometheus metrics (internal)
+    networks:
+      - irongate-network
+    depends_on:
+      - tempo
+      - loki
+      - prometheus
+
+  # Tempo - trace storage
+  tempo:
+    image: grafana/tempo:2.5.0
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - ./tempo.yaml:/etc/tempo.yaml:ro
+      - tempo-data:/var/tempo
+    ports:
+      - "3200:3200"   # Tempo HTTP
+    networks:
+      - irongate-network
+
+  # Loki - log aggregation
+  loki:
+    image: grafana/loki:3.0.0
+    command: ["-config.file=/etc/loki.yaml"]
+    user: "root"
+    volumes:
+      - ./loki.yaml:/etc/loki.yaml:ro
+      - loki-data:/var/loki
+    ports:
+      - "3100:3100"
+    networks:
+      - irongate-network
+
+  # Prometheus - metrics
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    command:
+      - "--config.file=/etc/prometheus.yaml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    volumes:
+      - ./prometheus.yaml:/etc/prometheus.yaml:ro
+      - prometheus-data:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - irongate-network
+
+  # Grafana - visualization
+  grafana:
+    image: grafana/grafana:11.0.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./grafana-datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:ro
+      - grafana-data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - irongate-network
+    depends_on:
+      - tempo
+      - loki
+      - prometheus
+
+networks:
+  irongate-network:
+    driver: bridge
 
 volumes:
   keycloak-data:
+  tempo-data:
+  loki-data:
+  prometheus-data:
+  grafana-data:

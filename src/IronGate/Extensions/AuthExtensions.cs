@@ -9,10 +9,10 @@ public static class AuthExtensions
 {
     public static IServiceCollection AddIronGateAuth(this IServiceCollection services, IConfiguration config)
     {
-        var keycloak = config.GetSection("Keycloak");
-        var authority = keycloak["Authority"];
-        var audience = keycloak["Audience"];
-        var requireHttpsMetadata = keycloak.GetValue<bool>("RequireHttpsMetadata");
+        IConfigurationSection keycloak = config.GetSection("Keycloak");
+        string? authority = keycloak["Authority"];
+        string? audience = keycloak["Audience"];
+        bool requireHttpsMetadata = keycloak.GetValue<bool>("RequireHttpsMetadata");
 
         services
             .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
