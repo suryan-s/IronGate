@@ -25,7 +25,7 @@ public static class AuthExtensions
                 options.TokenValidationParameters = new TokenValidationParameters
                 {
                     ValidateIssuer = true,
-                    ValidateAudience = false, // admin-cli token has no aud claim; enable when using dedicated client
+                    ValidateAudience = true, // enabled once dedicated irongate client is configured
                     ValidateLifetime = true,
                     ClockSkew = TimeSpan.FromSeconds(15)
                 };

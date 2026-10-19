@@ -13,6 +13,14 @@ services:
     networks:
       - irongate-network
 
+  # Echo service for testing
+  echo:
+    image: ealen/echo-server:latest
+    ports:
+      - "8081:80"
+    networks:
+      - irongate-network
+
   # OpenTelemetry Collector - receives traces/metrics/logs and forwards to backends
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.118.0
