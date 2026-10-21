@@ -39,6 +39,7 @@ public static class OtelExtensions
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
                     .AddMeter("Microsoft.AspNetCore.RateLimiting")
+                    .AddMeter("Polly")
                     .AddPrometheusExporter(); // /metrics endpoint
             })
             .WithTracing(tracing =>

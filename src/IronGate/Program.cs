@@ -8,6 +8,7 @@ builder.Services
     .AddIronGateAuth(builder.Configuration)
     .AddIronGateRateLimiting(builder.Configuration)
     .AddIronGateReverseProxy(builder.Configuration)
+    .AddIronGateResilience(builder.Configuration)
     .AddIronGateOtel(builder.Configuration);
 
 WebApplication app = builder.Build();
