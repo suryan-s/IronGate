@@ -19,14 +19,13 @@ public sealed class LoadSheddingMiddleware
         RequestDelegate next,
         ILogger<LoadSheddingMiddleware> logger,
         IOptions<LoadSheddingOptions> options,
-        ILoggerFactory loggerFactory)
+        Meter meter)
     {
         _next = next;
         _logger = logger;
         _options = options.Value;
 
-        // Create metrics
-        var meter = new Meter("IronGate.LoadShedding");
+        // Create metrics using shared Meter
         _rejectedCounter = meter.CreateCounter<long>("irongate.load_shedding.rejected");
         _inFlightCounter = meter.CreateUpDownCounter<long>("irongate.requests.inflight");
     }

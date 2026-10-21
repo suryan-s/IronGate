@@ -120,7 +120,7 @@ public static class RateLimitExtensions
 /// In-memory rate limit store (fallback when Redis is disabled).
 /// Uses partitioned sliding window / token bucket limiters.
 /// </summary>
-internal sealed class InMemoryRateLimitStore : IRateLimitStore
+public sealed class InMemoryRateLimitStore : IRateLimitStore
 {
     private readonly ConcurrentDictionary<string, RateLimiter> _limiterCache = new();
     private readonly SlidingWindowRateLimiterOptions _publicOptions;

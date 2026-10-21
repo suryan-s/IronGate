@@ -67,7 +67,7 @@ public sealed class RedisRateLimitStore : IRateLimitStore, IDisposable
         ILogger<RedisRateLimitStore> logger)
     {
         _redis = (ConnectionMultiplexer)redis;
-        _db = _redis.GetDatabase();
+        _db = redis.GetDatabase();
         _options = options.Value;
         _logger = logger;
     }

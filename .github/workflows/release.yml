@@ -16,7 +16,7 @@ env:
 
 jobs:
   test:
-    name: Test
+    name: Test with Coverage
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -33,8 +33,75 @@ jobs:
       - name: Build
         run: dotnet build IronGate.slnx -c Release --no-restore
 
-      - name: Test
-        run: dotnet test IronGate.slnx -c Release --no-build
+      - name: Test with Coverage
+        run: |
+          dotnet test IronGate.slnx -c Release --no-build \
+            --collect:"XPlat Code Coverage" \
+            --settings coverlet.runsettings \
+            -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Format=cobertura,opencover \
+            DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.CoverletOutputFormat=cobertura,opencover \
+            DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.MergeWith=true \
+            DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.ExcludeByFile="**/obj/**,**/bin/**"
+
+      - name: Check Coverage Threshold
+        run: |
+          # Find coverage file
+          COVERAGE_FILE=$(find . -name "coverage.cobertura.xml" -path "*/TestResults/*" | head -1)
+          if [ -z "$COVERAGE_FILE" ]; then
+            echo "Coverage file not found"
+            exit 1
+          fi
+          
+          # Generate report and check threshold
+          dotnet tool install -g coverlet.console
+          dotnet tool install -g reportgenerator
+          reportgenerator -reports:"$COVERAGE_FILE" -targetdir:coverage-report -reporttypes:HtmlInline_AzurePipelines,Badges -verbosity:Error
+          
+          # Check coverage for IronGate package only (integration tests)
+          COVERAGE=$(python3 -c "
+import xml.etree.ElementTree as ET
+import sys
+
+tree = ET.parse('$COVERAGE_FILE')
+root = tree.getroot()
+
+# Find the IronGate package
+for package in root.findall('.//package'):
+    if package.attrib.get('name') == 'IronGate':
+        line_rate = float(package.attrib.get('line-rate', 0))
+        print(f'{line_rate*100:.2f}')
+        sys.exit(0)
+
+# Fallback to overall coverage
+overall_rate = float(root.attrib.get('line-rate', 0))
+print(f'{overall_rate*100:.2f}')
+")
+          echo "IronGate package line coverage: $COVERAGE%"
+          
+          # Check if coverage meets threshold (50% for integration tests on main package)
+          python3 -c "
+coverage = float('$COVERAGE')
+threshold = 50.0
+if coverage < threshold:
+    print(f'Coverage {coverage}% is below {threshold}% threshold')
+    exit(1)
+else:
+    print(f'Coverage {coverage}% meets {threshold}% threshold')
+"
+
+      - name: Upload Coverage Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage-report
+          retention-days: 30
+
+      - name: Upload Coverage XML
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: "**/coverage.cobertura.xml"
+          retention-days: 30
 
   docker:
     name: Docker

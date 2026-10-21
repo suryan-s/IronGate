@@ -2,6 +2,7 @@ using IronGate.Middleware;
 using IronGate.Domain;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using System.Diagnostics.Metrics;
 
 namespace IronGate.Extensions;
 
@@ -13,6 +14,9 @@ public static class LoadSheddingExtensions
     {
         services.Configure<LoadSheddingOptions>(
             configuration.GetSection(LoadSheddingOptions.SectionName));
+
+        // Shared Meter for metrics
+        services.AddSingleton<Meter>(_ => new Meter("IronGate.LoadShedding"));
 
         return services;
     }

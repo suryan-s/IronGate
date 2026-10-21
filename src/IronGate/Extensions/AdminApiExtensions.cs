@@ -109,13 +109,29 @@ public sealed class AdminApiMiddleware
     private async Task HandleStatusAsync(HttpContext context)
     {
         var services = context.RequestServices;
+        var config = services.GetRequiredService<IConfiguration>();
         
         // Get rate limit store for stats
         var rateLimitStore = services.GetService<IRateLimitStore>();
         
         // Get fallback cache store for stats
         var fallbackCacheStore = services.GetService<IFallbackCacheStore>();
-        
+
+        // Read feature flags from config dynamically
+        var rateLimitingRedisEnabled = config.GetValue("RateLimiting:Redis:Enabled", false);
+        var hedgingEnabled = config.GetValue("Resilience:Hedging:Enabled", false);
+        var hedgingDelayMs = config.GetValue("Resilience:Hedging:DelayMs", 50);
+        var hedgingMaxAttempts = config.GetValue("Resilience:Hedging:MaxHedgedAttempts", 2);
+        var circuitBreakerEnabled = config.GetValue("Resilience:CircuitBreaker:Enabled", false);
+        var circuitBreakerFailureRatio = config.GetValue("Resilience:CircuitBreaker:FailureRatio", 0.5);
+        var circuitBreakerBreakDuration = config.GetValue("Resilience:CircuitBreaker:BreakDurationSeconds", 15);
+        var fallbackCacheEnabled = config.GetValue("FallbackCache:Enabled", false);
+        var fallbackCacheTtl = config.GetValue("FallbackCache:TtlSeconds", 300);
+        var fallbackCacheUseRedis = config.GetValue("FallbackCache:UseRedis", false);
+        var loadSheddingEnabled = config.GetValue("LoadShedding:Enabled", false);
+        var loadSheddingMaxConcurrent = config.GetValue("LoadShedding:MaxConcurrentRequests", 500);
+        var zeroTrustEnabled = !string.IsNullOrEmpty(config["DownstreamSecurity:SharedSecret"]);
+
         var response = new
         {
             timestamp = DateTimeOffset.UtcNow,
@@ -131,14 +147,14 @@ public sealed class AdminApiMiddleware
             },
             features = new
             {
-                redisRateLimiting = true,
-                hedging = new { enabled = true, delayMs = 50, maxAttempts = 2 },
-                circuitBreaker = new { enabled = true, failureRatio = 0.5, breakDurationSeconds = 15 },
-                fallbackCache = new { enabled = true, ttlSeconds = 300, useRedis = true },
-                loadShedding = new { enabled = true, maxConcurrent = 500 },
-                zeroTrust = new { enabled = true }
+                redisRateLimiting = rateLimitingRedisEnabled,
+                hedging = new { enabled = hedgingEnabled, delayMs = hedgingDelayMs, maxAttempts = hedgingMaxAttempts },
+                circuitBreaker = new { enabled = circuitBreakerEnabled, failureRatio = circuitBreakerFailureRatio, breakDurationSeconds = circuitBreakerBreakDuration },
+                fallbackCache = new { enabled = fallbackCacheEnabled, ttlSeconds = fallbackCacheTtl, useRedis = fallbackCacheUseRedis },
+                loadShedding = new { enabled = loadSheddingEnabled, maxConcurrent = loadSheddingMaxConcurrent },
+                zeroTrust = new { enabled = zeroTrustEnabled }
             },
-            inFlightRequests = 0, // Would need to track this
+            inFlightRequests = 0,
             uptime = DateTimeOffset.UtcNow - System.Diagnostics.Process.GetCurrentProcess().StartTime.ToUniversalTime()
         };
 

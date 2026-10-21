@@ -11,14 +11,18 @@ namespace IronGate.Infrastructure.Caching;
 /// Redis-backed fallback cache store with L1 (in-memory) + L2 (Redis) hybrid architecture.
 /// L1: Short TTL, fast access. L2: Full TTL, distributed across instances.
 /// </summary>
-public sealed class RedisFallbackCacheStore : IFallbackCacheStore, IDisposable
+public sealed class RedisFallbackCacheStore : IFallbackCacheStore
 {
     private readonly IMemoryCache _memoryCache;
     private readonly IConnectionMultiplexer _redis;
     private readonly IDatabase _db;
     private readonly ILogger<RedisFallbackCacheStore> _logger;
     private readonly FallbackCacheOptions _options;
-    private readonly JsonSerializerOptions _jsonOptions;
+    private static readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+    private const int L1_TTL_SECONDS = 30;
 
     public RedisFallbackCacheStore(
         IMemoryCache memoryCache,
@@ -31,10 +35,6 @@ public sealed class RedisFallbackCacheStore : IFallbackCacheStore, IDisposable
         _db = redis.GetDatabase();
         _options = options.Value;
         _logger = logger;
-        _jsonOptions = new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-        };
     }
 
     public async ValueTask<CachedResponseSnapshot?> GetAsync(string cacheKey, CancellationToken cancellationToken = default)
@@ -83,7 +83,7 @@ public sealed class RedisFallbackCacheStore : IFallbackCacheStore, IDisposable
         var fullKey = $"irongate:fallback:{cacheKey}";
 
         // L1: Set in memory with short TTL (30s)
-        _memoryCache.Set(fullKey, snapshot, TimeSpan.FromSeconds(30));
+        _memoryCache.Set(fullKey, snapshot, TimeSpan.FromSeconds(L1_TTL_SECONDS));
 
         // L2: Set in Redis with full TTL
         try
@@ -123,10 +123,5 @@ public sealed class RedisFallbackCacheStore : IFallbackCacheStore, IDisposable
         {
             _logger.LogError(ex, "Redis fallback cache remove failed: {Key}", cacheKey);
         }
-    }
-
-    public void Dispose()
-    {
-        // ConnectionMultiplexer is managed externally
     }
 }

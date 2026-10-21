@@ -23,7 +23,13 @@ public sealed class CorrelationIdMiddleware
         // Extract or generate correlation ID
         string correlationId = context.Request.Headers.TryGetValue(CorrelationHeader, out StringValues headerValue)
             ? headerValue.ToString()
-            : Activity.Current?.TraceId.ToString() ?? Guid.NewGuid().ToString("N")[..16];
+            : null;
+
+        // If header is missing or empty, generate a new correlation ID
+        if (string.IsNullOrEmpty(correlationId))
+        {
+            correlationId = Activity.Current?.TraceId.ToString() ?? Guid.NewGuid().ToString("N")[..16];
+        }
 
         // Set response header so clients can correlate
         context.Response.Headers[CorrelationHeader] = correlationId;
