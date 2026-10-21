@@ -3,7 +3,7 @@ using Microsoft.Extensions.DependencyInjection;
 using System.Security.Claims;
 using Yarp.ReverseProxy.Configuration;
 using Yarp.ReverseProxy.Transforms;
-using IronGate.Abstractions;
+using IronGate.Domain;
 
 namespace IronGate.Extensions;
 

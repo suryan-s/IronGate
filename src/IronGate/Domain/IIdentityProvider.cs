@@ -4,7 +4,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 
-namespace IronGate.Abstractions;
+namespace IronGate.Domain;
 
 /// <summary>
 /// Abstracts identity provider configuration and claim mapping.

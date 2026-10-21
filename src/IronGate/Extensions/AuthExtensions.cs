@@ -1,6 +1,6 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using IronGate.Abstractions;
+using IronGate.Domain;
 
 namespace IronGate.Extensions;
 

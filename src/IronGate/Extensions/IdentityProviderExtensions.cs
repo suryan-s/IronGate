@@ -3,8 +3,8 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
-using IronGate.Abstractions;
-using IronGate.IdentityProviders.Keycloak;
+using IronGate.Domain;
+using IronGate.Infrastructure.Keycloak;
 
 namespace IronGate.Extensions;
 

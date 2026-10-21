@@ -3,9 +3,9 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
-using IronGate.Abstractions;
+using IronGate.Domain;
 
-namespace IronGate.IdentityProviders.Keycloak;
+namespace IronGate.Infrastructure.Keycloak;
 
 /// <summary>
 /// Keycloak-specific identity provider adapter.
