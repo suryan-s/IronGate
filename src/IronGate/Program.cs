@@ -6,6 +6,7 @@ WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
 builder.Services
     .AddIronGateAuth(builder.Configuration)
+    .AddIronGateRateLimiting(builder.Configuration)
     .AddIronGateReverseProxy(builder.Configuration)
     .AddIronGateOtel(builder.Configuration);
 
@@ -21,6 +22,9 @@ app.MapPrometheusScrapingEndpoint();
 
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Custom rate limiting middleware (runs after auth so JWT claims are available)
+app.UseMiddleware<RateLimitMiddleware>();
 
 app.MapReverseProxy();
 
