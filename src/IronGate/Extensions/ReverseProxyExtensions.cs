@@ -18,6 +18,9 @@ public static class ReverseProxyExtensions
         string idpName = config["IdentityProvider:Default"] ?? "keycloak";
         var provider = registry.GetRequiredProvider(idpName);
 
+        // Get downstream security secret
+        var downstreamSecret = config["DownstreamSecurity:SharedSecret"];
+
         services
             .AddReverseProxy()
             .LoadFromConfig(config.GetSection("ReverseProxy"))
@@ -25,6 +28,16 @@ public static class ReverseProxyExtensions
             {
                 builderContext.AddRequestTransform(transformContext =>
                 {
+                    // SECURITY: Always strip any incoming gateway secret header from external clients
+                    transformContext.ProxyRequest.Headers.Remove("X-IronGate-Gateway-Secret");
+
+                    // Inject gateway secret if configured (zero-trust verification)
+                    if (!string.IsNullOrEmpty(downstreamSecret))
+                    {
+                        transformContext.ProxyRequest.Headers.TryAddWithoutValidation(
+                            "X-IronGate-Gateway-Secret", downstreamSecret);
+                    }
+
                     transformContext.ProxyRequest.Headers.Remove("X-IronGate-User-Id");
                     transformContext.ProxyRequest.Headers.Remove("X-IronGate-Username");
 

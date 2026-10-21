@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Security.Cryptography;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -82,6 +83,17 @@ public sealed class IronGateDownstreamOptions : AuthenticationSchemeOptions
     public string CorrelationIdHeader { get; set; } = "X-Correlation-Id";
 
     /// <summary>
+    /// Header name for the gateway secret forwarded by IronGate.
+    /// </summary>
+    public string GatewaySecretHeader { get; set; } = "X-IronGate-Gateway-Secret";
+
+    /// <summary>
+    /// Shared secret for zero-trust gateway verification.
+    /// If set, the handler will validate X-IronGate-Gateway-Secret using FixedTimeEquals.
+    /// </summary>
+    public string? SharedSecret { get; set; }
+
+    /// <summary>
     /// Whether to require the headers to be present (fail auth if missing).
     /// Set to false for optional auth (e.g., public endpoints).
     /// </summary>
@@ -113,6 +125,25 @@ public sealed class IronGateDownstreamAuthHandler : AuthenticationHandler<IronGa
         var username = Request.Headers[Options.UsernameHeader].FirstOrDefault();
         var rolesHeader = Request.Headers[Options.RolesHeader].FirstOrDefault();
         var correlationId = Request.Headers[Options.CorrelationIdHeader].FirstOrDefault();
+        var gatewaySecret = Request.Headers[Options.GatewaySecretHeader].FirstOrDefault();
+
+        // Zero-trust gateway verification: validate shared secret if configured
+        if (!string.IsNullOrEmpty(Options.SharedSecret))
+        {
+            if (string.IsNullOrEmpty(gatewaySecret))
+            {
+                return AuthenticateResult.Fail($"Missing required gateway verification header: {Options.GatewaySecretHeader}");
+            }
+
+            // Use FixedTimeEquals to prevent timing attacks
+            var expectedBytes = System.Text.Encoding.UTF8.GetBytes(Options.SharedSecret);
+            var actualBytes = System.Text.Encoding.UTF8.GetBytes(gatewaySecret);
+
+            if (!CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes))
+            {
+                return AuthenticateResult.Fail("Invalid gateway secret");
+            }
+        }
 
         // If required headers are missing and required, fail
         if (Options.RequireHeaders && string.IsNullOrEmpty(userId))

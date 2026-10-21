@@ -1,5 +1,6 @@
 using System.Text;
 using IronGate.Domain;
+using IronGate.Infrastructure.Caching;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -8,11 +9,12 @@ namespace IronGate.Middleware;
 
 public sealed class FallbackCacheMiddleware(
     RequestDelegate next,
-    IFallbackCacheStore cacheStore,
+    IServiceProvider serviceProvider,
     IOptions<FallbackCacheOptions> options,
     ILogger<FallbackCacheMiddleware> logger)
 {
     private readonly FallbackCacheOptions _options = options.Value;
+    private readonly ILogger<FallbackCacheMiddleware> _logger = logger;
 
     public async Task InvokeAsync(HttpContext context)
     {
@@ -21,6 +23,20 @@ public sealed class FallbackCacheMiddleware(
         {
             await next(context);
             return;
+        }
+
+        // Resolve the correct store at runtime based on current config
+        var fallbackCacheOptions = context.RequestServices
+            .GetRequiredService<IOptionsMonitor<FallbackCacheOptions>>().CurrentValue;
+        
+        IFallbackCacheStore cacheStore;
+        if (fallbackCacheOptions.UseRedis)
+        {
+            cacheStore = context.RequestServices.GetRequiredService<RedisFallbackCacheStore>();
+        }
+        else
+        {
+            cacheStore = context.RequestServices.GetRequiredService<InMemoryFallbackCacheStore>();
         }
 
         var path = context.Request.Path.Value ?? "/";
@@ -59,7 +75,7 @@ public sealed class FallbackCacheMiddleware(
                 var cached = await cacheStore.GetAsync(cacheKey, context.RequestAborted);
                 if (cached is not null)
                 {
-                    logger.LogWarning(
+                    _logger.LogWarning(
                         "Downstream returned {StatusCode} for {Path}. Serving cached fallback from {CachedAt}.",
                         context.Response.StatusCode, path, cached.CachedAtUtc);
 
@@ -75,7 +91,7 @@ public sealed class FallbackCacheMiddleware(
                 // Tier 2: Check Static Fallback Config
                 if (_options.StaticFallbacks.TryGetValue(path, out var staticPayload))
                 {
-                    logger.LogWarning(
+                    _logger.LogWarning(
                         "Downstream returned {StatusCode} for {Path}. Serving configured static fallback.",
                         context.Response.StatusCode, path);
 

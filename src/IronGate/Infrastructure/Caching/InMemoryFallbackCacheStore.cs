@@ -22,4 +22,10 @@ public sealed class InMemoryFallbackCacheStore(IMemoryCache memoryCache) : IFall
         memoryCache.Set(cacheKey, snapshot, ttl);
         return ValueTask.CompletedTask;
     }
+
+    public ValueTask RemoveAsync(string cacheKey, CancellationToken cancellationToken = default)
+    {
+        memoryCache.Remove(cacheKey);
+        return ValueTask.CompletedTask;
+    }
 }

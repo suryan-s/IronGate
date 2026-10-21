@@ -10,12 +10,17 @@ builder.Services
     .AddIronGateReverseProxy(builder.Configuration)
     .AddIronGateResilience(builder.Configuration)
     .AddIronGateFallbackCache(builder.Configuration)
+    .AddIronGateLoadShedding(builder.Configuration)
+    .AddIronGateAdminApi(builder.Configuration)
     .AddIronGateOtel(builder.Configuration);
 
 WebApplication app = builder.Build();
 
 // Correlation ID must be first to capture all requests
 app.UseCorrelationId();
+
+// Load shedding - early in pipeline to protect from overload
+app.UseIronGateLoadShedding();
 
 app.MapGet("/healthz", () => Results.Ok(new { status = "healthy", service = "IronGate" }));
 
@@ -30,6 +35,9 @@ app.UseMiddleware<RateLimitMiddleware>();
 
 // Fallback cache middleware - intercepts 5xx from YARP/CircuitBreaker, serves cached fallback
 app.UseIronGateFallbackCache();
+
+// Admin API
+app.UseMiddleware<AdminApiMiddleware>();
 
 app.MapReverseProxy();
 

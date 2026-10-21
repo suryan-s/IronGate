@@ -24,6 +24,7 @@ public sealed class RedisRateLimitStore : IRateLimitStore, IDisposable
     // ARGV[2] = permit limit
     // ARGV[3] = current timestamp in milliseconds
     // ARGV[4] = permit count to acquire
+    // Returns: {acquired (0/1), remaining, reset_epoch_seconds, retry_after_seconds}
     private const string SlidingWindowScript = @"
         local key = KEYS[1]
         local window = tonumber(ARGV[1])
@@ -45,7 +46,9 @@ public sealed class RedisRateLimitStore : IRateLimitStore, IDisposable
             end
             -- Set expiry on key (window + buffer)
             redis.call('EXPIRE', key, math.ceil(window / 1000) + 1)
-            return {1, limit - current - count}
+            local remaining = limit - current - count
+            local reset_epoch = math.ceil((now + window) / 1000)
+            return {1, remaining, reset_epoch, 0}
         else
             -- Get oldest entry to calculate retry-after
             local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
@@ -53,7 +56,8 @@ public sealed class RedisRateLimitStore : IRateLimitStore, IDisposable
             if #oldest > 0 then
                 retry_after = math.ceil((tonumber(oldest[2]) + window - now) / 1000)
             end
-            return {0, retry_after}
+            local reset_epoch = math.ceil((now + window) / 1000)
+            return {0, 0, reset_epoch, retry_after}
         end
     ";
 
@@ -68,7 +72,7 @@ public sealed class RedisRateLimitStore : IRateLimitStore, IDisposable
         _logger = logger;
     }
 
-    public async ValueTask<RateLimitLease> AcquireAsync(string partitionKey, int permitCount, CancellationToken cancellationToken = default)
+    public async ValueTask<RateLimitResult> AcquireAsync(string partitionKey, int permitCount, CancellationToken cancellationToken = default)
     {
         var key = $"{_options.KeyPrefix}{partitionKey}";
         var windowMs = (long)_options.Window.TotalMilliseconds;
@@ -83,32 +87,38 @@ public sealed class RedisRateLimitStore : IRateLimitStore, IDisposable
 
             var resultArray = (RedisResult[])result!;
             var acquired = (bool)resultArray[0];
-            var metadata = (long)resultArray[1];
+            var remaining = (long)resultArray[1];
+            var resetEpoch = (long)resultArray[2];
+            var retryAfter = (long)resultArray[3];
+
+            var limit = _options.PermitLimit;
 
             if (acquired)
             {
-                return new RedisRateLimitLease(
-                    isAcquired: true,
-                    retryAfter: TimeSpan.Zero,
-                    currentAvailablePermits: metadata);
+                return new RateLimitResult(
+                    IsAllowed: true,
+                    Limit: (int)limit,
+                    Remaining: (int)Math.Max(0, remaining),
+                    ResetEpochSeconds: resetEpoch);
             }
             else
             {
-                var retryAfter = TimeSpan.FromSeconds(metadata);
-                return new RedisRateLimitLease(
-                    isAcquired: false,
-                    retryAfter: retryAfter,
-                    currentAvailablePermits: 0);
+                return new RateLimitResult(
+                    IsAllowed: false,
+                    Limit: (int)limit,
+                    Remaining: 0,
+                    ResetEpochSeconds: resetEpoch);
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Redis rate limit acquire failed for key {Key}", key);
             // Fail open - allow request through if Redis is down
-            return new RedisRateLimitLease(
-                isAcquired: true,
-                retryAfter: TimeSpan.Zero,
-                currentAvailablePermits: _options.PermitLimit);
+            return new RateLimitResult(
+                IsAllowed: true,
+                Limit: (int)_options.PermitLimit,
+                Remaining: (int)_options.PermitLimit,
+                ResetEpochSeconds: DateTimeOffset.UtcNow.Add(_options.Window).ToUnixTimeSeconds());
         }
     }
 
@@ -145,51 +155,22 @@ public sealed class RedisRateLimitStore : IRateLimitStore, IDisposable
         }
     }
 
+    public async ValueTask RemoveAsync(string partitionKey, CancellationToken cancellationToken = default)
+    {
+        var key = $"{_options.KeyPrefix}{partitionKey}";
+        try
+        {
+            await _db.KeyDeleteAsync(key);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Redis rate limit remove failed for key {Key}", key);
+        }
+    }
+
     public void Dispose()
     {
         // ConnectionMultiplexer is managed externally
-    }
-}
-
-/// <summary>
-/// Custom RateLimitLease implementation for Redis store.
-/// </summary>
-internal sealed class RedisRateLimitLease : RateLimitLease
-{
-    private readonly bool _isAcquired;
-    private readonly TimeSpan _retryAfter;
-    private readonly long _currentAvailablePermits;
-
-    public RedisRateLimitLease(bool isAcquired, TimeSpan retryAfter, long currentAvailablePermits)
-    {
-        _isAcquired = isAcquired;
-        _retryAfter = retryAfter;
-        _currentAvailablePermits = currentAvailablePermits;
-    }
-
-    public override bool IsAcquired => _isAcquired;
-
-    public override IReadOnlyList<string> MetadataNames => new[] { "RetryAfter", "CurrentAvailablePermits" };
-
-    public override bool TryGetMetadata(string metadataName, out object? metadata)
-    {
-        if (metadataName == "RetryAfter")
-        {
-            metadata = _retryAfter;
-            return true;
-        }
-        if (metadataName == "CurrentAvailablePermits")
-        {
-            metadata = _currentAvailablePermits;
-            return true;
-        }
-        metadata = null;
-        return false;
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        // No resources to dispose
     }
 }
 

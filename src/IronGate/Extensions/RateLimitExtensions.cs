@@ -137,7 +137,7 @@ internal sealed class InMemoryRateLimitStore : IRateLimitStore
         _unlimitedOptions = unlimitedOptions;
     }
 
-    public async ValueTask<RateLimitLease> AcquireAsync(string partitionKey, int permitCount, CancellationToken cancellationToken = default)
+    public async ValueTask<RateLimitResult> AcquireAsync(string partitionKey, int permitCount, CancellationToken cancellationToken = default)
     {
         RateLimiter limiter;
 
@@ -154,7 +154,40 @@ internal sealed class InMemoryRateLimitStore : IRateLimitStore
             limiter = _limiterCache.GetOrAdd(partitionKey, _ => new FixedWindowRateLimiter(_unlimitedOptions));
         }
 
-        return await limiter.AcquireAsync(permitCount, cancellationToken);
+        var lease = await limiter.AcquireAsync(permitCount, cancellationToken);
+
+        // Extract quota info from lease metadata
+        var isAllowed = lease.IsAcquired;
+        int limit, remaining;
+        long resetEpoch;
+
+        if (partitionKey.StartsWith("public:"))
+        {
+            limit = _publicOptions.PermitLimit;
+            // For sliding window, we don't have easy access to remaining, estimate
+            remaining = isAllowed ? limit - 1 : 0;
+            resetEpoch = DateTimeOffset.UtcNow.Add(_publicOptions.Window).ToUnixTimeSeconds();
+        }
+        else if (partitionKey.StartsWith("protected:user:"))
+        {
+            limit = _protectedOptions.TokenLimit;
+            // For token bucket, estimate remaining tokens
+            remaining = isAllowed ? (int)_protectedOptions.TokenLimit - 1 : 0;
+            resetEpoch = DateTimeOffset.UtcNow.Add(_protectedOptions.ReplenishmentPeriod).ToUnixTimeSeconds();
+        }
+        else
+        {
+            limit = int.MaxValue;
+            remaining = int.MaxValue;
+            resetEpoch = DateTimeOffset.UtcNow.AddSeconds(1).ToUnixTimeSeconds();
+        }
+
+        return new RateLimitResult(
+            IsAllowed: isAllowed,
+            Limit: limit,
+            Remaining: Math.Max(0, remaining),
+            ResetEpochSeconds: DateTimeOffset.UtcNow.AddSeconds(60).ToUnixTimeSeconds(),
+            Lease: isAllowed ? lease : null);
     }
 
     public ValueTask<long> GetAvailablePermitsAsync(string partitionKey, CancellationToken cancellationToken = default)
@@ -163,6 +196,12 @@ internal sealed class InMemoryRateLimitStore : IRateLimitStore
     }
 
     public ValueTask ResetAsync(string partitionKey, CancellationToken cancellationToken = default)
+    {
+        _limiterCache.TryRemove(partitionKey, out _);
+        return ValueTask.CompletedTask;
+    }
+
+    public ValueTask RemoveAsync(string partitionKey, CancellationToken cancellationToken = default)
     {
         _limiterCache.TryRemove(partitionKey, out _);
         return ValueTask.CompletedTask;
@@ -264,11 +303,17 @@ public sealed class RateLimitMiddleware
             path, partitionKey, store.GetType().Name);
 
         // Try to acquire lease from distributed store
-        var lease = await store.AcquireAsync(partitionKey, 1, context.RequestAborted);
+        var result = await store.AcquireAsync(partitionKey, 1, context.RequestAborted);
 
-        _logger.LogDebug("Rate limit result: partitionKey={PartitionKey}, acquired={Acquired}", partitionKey, lease.IsAcquired);
+        _logger.LogDebug("Rate limit result: partitionKey={PartitionKey}, acquired={Acquired}, limit={Limit}, remaining={Remaining}",
+            partitionKey, result.IsAllowed, result.Limit, result.Remaining);
 
-        if (!lease.IsAcquired)
+        // Add RFC-compliant rate limit headers to ALL responses
+        context.Response.Headers["X-RateLimit-Limit"] = result.Limit.ToString();
+        context.Response.Headers["X-RateLimit-Remaining"] = Math.Max(0, result.Remaining).ToString();
+        context.Response.Headers["X-RateLimit-Reset"] = result.ResetEpochSeconds.ToString();
+
+        if (!result.IsAllowed)
         {
             // Rate limited - return 429
             context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
@@ -276,9 +321,13 @@ public sealed class RateLimitMiddleware
 
             // Use limiter's metadata if available, otherwise fallback
             TimeSpan retryAfter = fallbackRetryAfter;
-            if (lease.TryGetMetadata("RetryAfter", out var retryAfterObj) && retryAfterObj is TimeSpan ra)
+            if (result.Lease?.TryGetMetadata("RetryAfter", out var retryAfterObj) == true && retryAfterObj is TimeSpan ra)
             {
                 retryAfter = ra;
+            }
+            else
+            {
+                retryAfter = fallbackRetryAfter;
             }
 
             context.Response.Headers.RetryAfter =
@@ -307,7 +356,7 @@ public sealed class RateLimitMiddleware
         }
         finally
         {
-            lease.Dispose();
+            result.Lease?.Dispose();
         }
     }
 }
