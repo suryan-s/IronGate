@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageId>IronGate.AspNetCore</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>IronGate Team</Authors>
+    <Description>Companion library for IronGate API Gateway - auto-configures downstream auth from X-IronGate-* headers</Description>
+    <PackageTags>irongate;apigateway;authentication;downstream;aspnetcore</PackageTags>
+    <RepositoryUrl>https://github.com/suryan-s/IronGate</RepositoryUrl>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+</Project>

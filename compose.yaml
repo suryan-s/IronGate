@@ -1,4 +1,30 @@
 services:
+  # IronGate API Gateway
+  irongate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: iron-gate:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:8080
+      - ConnectionStrings__Redis=redis:6379
+      - RateLimiting__Redis__ConnectionString=redis:6379
+    networks:
+      - irongate-network
+    depends_on:
+      - redis
+      - keycloak
+      - echo
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
   # Redis - distributed rate limiting store
   redis:
     image: redis:7-alpine

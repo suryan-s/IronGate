@@ -1,5 +1,6 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/IronGate.AspNetCore/IronGate.AspNetCore.csproj" />
     <Project Path="src/IronGate/IronGate.csproj" />
   </Folder>
   <Folder Name="/tests/">
