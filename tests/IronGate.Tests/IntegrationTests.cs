@@ -20,7 +20,42 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         {
             builder.ConfigureAppConfiguration((context, config) =>
             {
-                config.AddJsonFile("appsettings.Development.json", optional: false);
+                config.Sources.Clear();
+                config.AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Logging:LogLevel:Default"] = "Debug",
+                    ["Logging:LogLevel:Microsoft.AspNetCore"] = "Warning",
+                    ["Logging:LogLevel:Yarp"] = "Debug",
+                    ["Logging:LogLevel:IronGate"] = "Debug",
+                    ["IdentityProvider:Default"] = "keycloak",
+                    ["Keycloak:Authority"] = "http://localhost:8080/realms/master",
+                    ["Keycloak:Audience"] = "irongate-test",
+                    ["Keycloak:RequireHttpsMetadata"] = "false",
+                    ["ServiceName"] = "IronGate",
+                    ["Environment"] = "Development",
+                    ["Otel:Endpoint"] = "http://localhost:4317",
+                    ["Otel:Enabled"] = "true",
+                    ["RateLimiting:Public:PermitLimit"] = "10",
+                    ["RateLimiting:Public:WindowSeconds"] = "60",
+                    ["RateLimiting:Public:SegmentsPerWindow"] = "6",
+                    ["RateLimiting:Protected:TokenLimit"] = "20",
+                    ["RateLimiting:Protected:TokensPerPeriod"] = "5",
+                    ["RateLimiting:Protected:ReplenishmentPeriodSeconds"] = "10",
+                    ["RateLimiting:Redis:Enabled"] = "false",
+                    ["RateLimiting:Redis:ConnectionString"] = "localhost:6379",
+                    ["RateLimiting:Redis:KeyPrefix"] = "irongate:ratelimit:",
+                    ["RateLimiting:Redis:PermitLimit"] = "100",
+                    ["RateLimiting:Redis:WindowSeconds"] = "60",
+                    ["ReverseProxy:Routes:public-api:ClusterId"] = "downstream-echo",
+                    ["ReverseProxy:Routes:public-api:AuthorizationPolicy"] = "Anonymous",
+                    ["ReverseProxy:Routes:public-api:Match:Path"] = "/api/public/{**catch-all}",
+                    ["ReverseProxy:Routes:public-api:Transforms:0:PathRemovePrefix"] = "/api/public",
+                    ["ReverseProxy:Routes:protected-api:ClusterId"] = "downstream-echo",
+                    ["ReverseProxy:Routes:protected-api:AuthorizationPolicy"] = "jwt-required",
+                    ["ReverseProxy:Routes:protected-api:Match:Path"] = "/api/protected/{**catch-all}",
+                    ["ReverseProxy:Routes:protected-api:Transforms:0:PathRemovePrefix"] = "/api/protected",
+                    ["ReverseProxy:Clusters:downstream-echo:Destinations:node-1:Address"] = "http://localhost:8081/"
+                });
                 config.AddEnvironmentVariables();
             });
         });

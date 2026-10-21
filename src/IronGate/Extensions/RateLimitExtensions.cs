@@ -6,6 +6,10 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using StackExchange.Redis;
+using IronGate.Domain;
+using IronGate.Infrastructure.Redis;
 
 namespace IronGate.Extensions;
 
@@ -13,15 +17,13 @@ public static class RateLimitExtensions
 {
     public const string UnifiedPolicy = "default";
 
-    // Cache limiters by partition key
-    private static readonly ConcurrentDictionary<string, RateLimiter> _limiterCache = new();
-
     public static IServiceCollection AddIronGateRateLimiting(
         this IServiceCollection services,
         IConfiguration configuration)
     {
         var publicConfig = configuration.GetSection("RateLimiting:Public");
         var protectedConfig = configuration.GetSection("RateLimiting:Protected");
+        var redisConfig = configuration.GetSection("RateLimiting:Redis");
 
         // Pre-create limiter options for reuse
         var publicOptions = new SlidingWindowRateLimiterOptions
@@ -50,10 +52,32 @@ public static class RateLimitExtensions
             QueueLimit = 0
         };
 
-        // Store options for middleware access
+        // Register options for middleware
         services.AddSingleton(publicOptions);
         services.AddSingleton(protectedOptions);
         services.AddSingleton(unlimitedOptions);
+
+        // Register rate limiter options for Redis store
+        services.Configure<RedisRateLimitOptions>(redisConfig);
+
+        // Register Redis connection (lazy - only connects when first used)
+        services.AddSingleton<IConnectionMultiplexer>(sp =>
+        {
+            var options = sp.GetRequiredService<IOptions<RedisRateLimitOptions>>().Value;
+            if (!options.Enabled)
+            {
+                return null!; // Will be handled by factory
+            }
+            var config = ConfigurationOptions.Parse(options.ConnectionString);
+            config.AbortOnConnectFail = false;
+            config.ConnectRetry = 3;
+            config.ConnectTimeout = 5000;
+            return ConnectionMultiplexer.Connect(config);
+        });
+
+        // Register BOTH stores - factory will pick the right one at runtime
+        services.AddSingleton<InMemoryRateLimitStore>();
+        services.AddSingleton<RedisRateLimitStore>();
 
         // Register the rate limiter service for DI
         services.AddSingleton<RateLimiter>(_ => new FixedWindowRateLimiter(unlimitedOptions));
@@ -93,14 +117,68 @@ public static class RateLimitExtensions
 }
 
 /// <summary>
+/// In-memory rate limit store (fallback when Redis is disabled).
+/// Uses partitioned sliding window / token bucket limiters.
+/// </summary>
+internal sealed class InMemoryRateLimitStore : IRateLimitStore
+{
+    private readonly ConcurrentDictionary<string, RateLimiter> _limiterCache = new();
+    private readonly SlidingWindowRateLimiterOptions _publicOptions;
+    private readonly TokenBucketRateLimiterOptions _protectedOptions;
+    private readonly FixedWindowRateLimiterOptions _unlimitedOptions;
+
+    public InMemoryRateLimitStore(
+        SlidingWindowRateLimiterOptions publicOptions,
+        TokenBucketRateLimiterOptions protectedOptions,
+        FixedWindowRateLimiterOptions unlimitedOptions)
+    {
+        _publicOptions = publicOptions;
+        _protectedOptions = protectedOptions;
+        _unlimitedOptions = unlimitedOptions;
+    }
+
+    public async ValueTask<RateLimitLease> AcquireAsync(string partitionKey, int permitCount, CancellationToken cancellationToken = default)
+    {
+        RateLimiter limiter;
+
+        if (partitionKey.StartsWith("public:"))
+        {
+            limiter = _limiterCache.GetOrAdd(partitionKey, _ => new SlidingWindowRateLimiter(_publicOptions));
+        }
+        else if (partitionKey.StartsWith("protected:user:"))
+        {
+            limiter = _limiterCache.GetOrAdd(partitionKey, _ => new TokenBucketRateLimiter(_protectedOptions));
+        }
+        else
+        {
+            limiter = _limiterCache.GetOrAdd(partitionKey, _ => new FixedWindowRateLimiter(_unlimitedOptions));
+        }
+
+        return await limiter.AcquireAsync(permitCount, cancellationToken);
+    }
+
+    public ValueTask<long> GetAvailablePermitsAsync(string partitionKey, CancellationToken cancellationToken = default)
+    {
+        return new ValueTask<long>(0);
+    }
+
+    public ValueTask ResetAsync(string partitionKey, CancellationToken cancellationToken = default)
+    {
+        _limiterCache.TryRemove(partitionKey, out _);
+        return ValueTask.CompletedTask;
+    }
+}
+
+/// <summary>
 /// Custom rate limiting middleware that handles partitioned rate limiting correctly.
 /// Runs after authentication so JWT claims are available.
+/// Supports both in-memory and distributed (Redis) rate limiting.
 /// </summary>
 public sealed class RateLimitMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly ILogger<RateLimitMiddleware> _logger;
-    private readonly ConcurrentDictionary<string, RateLimiter> _limiterCache = new();
+    private readonly IServiceProvider _serviceProvider;
 
     // Limiter options (injected)
     private readonly SlidingWindowRateLimiterOptions _publicOptions;
@@ -114,12 +192,14 @@ public sealed class RateLimitMiddleware
     public RateLimitMiddleware(
         RequestDelegate next,
         ILogger<RateLimitMiddleware> logger,
+        IServiceProvider serviceProvider,
         SlidingWindowRateLimiterOptions publicOptions,
         TokenBucketRateLimiterOptions protectedOptions,
         FixedWindowRateLimiterOptions unlimitedOptions)
     {
         _next = next;
         _logger = logger;
+        _serviceProvider = serviceProvider;
         _publicOptions = publicOptions;
         _protectedOptions = protectedOptions;
         _unlimitedOptions = unlimitedOptions;
@@ -143,13 +223,24 @@ public sealed class RateLimitMiddleware
             return;
         }
 
-        RateLimiter limiter;
+        string partitionKey;
         TimeSpan fallbackRetryAfter;
+        IRateLimitStore store;
+
+        // Resolve the correct store at runtime based on current config
+        var redisOptions = _serviceProvider.GetRequiredService<IOptions<RedisRateLimitOptions>>().Value;
+        if (redisOptions.Enabled)
+        {
+            store = _serviceProvider.GetRequiredService<RedisRateLimitStore>();
+        }
+        else
+        {
+            store = _serviceProvider.GetRequiredService<InMemoryRateLimitStore>();
+        }
 
         if (path.StartsWith("/api/public/", StringComparison.OrdinalIgnoreCase))
         {
-            var partitionKey = $"public:{context.Connection.RemoteIpAddress?.ToString() ?? "unknown-ip"}";
-            limiter = _limiterCache.GetOrAdd(partitionKey, _ => new SlidingWindowRateLimiter(_publicOptions));
+            partitionKey = $"public:{context.Connection.RemoteIpAddress?.ToString() ?? "unknown-ip"}";
             fallbackRetryAfter = TimeSpan.FromSeconds(
                 _publicOptions.Window.TotalSeconds / _publicOptions.SegmentsPerWindow);
         }
@@ -159,8 +250,7 @@ public sealed class RateLimitMiddleware
                          ?? context.User.FindFirstValue("sub")
                          ?? context.Connection.RemoteIpAddress?.ToString()
                          ?? "anonymous";
-            var partitionKey = $"protected:user:{userId}";
-            limiter = _limiterCache.GetOrAdd(partitionKey, _ => new TokenBucketRateLimiter(_protectedOptions));
+            partitionKey = $"protected:user:{userId}";
             fallbackRetryAfter = TimeSpan.FromSeconds(
                 _protectedOptions.ReplenishmentPeriod.TotalSeconds / _protectedOptions.TokensPerPeriod);
         }
@@ -170,8 +260,13 @@ public sealed class RateLimitMiddleware
             return;
         }
 
-        // Try to acquire lease
-        var lease = await limiter.AcquireAsync(1, context.RequestAborted);
+        _logger.LogDebug("Rate limit check: path={Path}, partitionKey={PartitionKey}, store={Store}",
+            path, partitionKey, store.GetType().Name);
+
+        // Try to acquire lease from distributed store
+        var lease = await store.AcquireAsync(partitionKey, 1, context.RequestAborted);
+
+        _logger.LogDebug("Rate limit result: partitionKey={PartitionKey}, acquired={Acquired}", partitionKey, lease.IsAcquired);
 
         if (!lease.IsAcquired)
         {
