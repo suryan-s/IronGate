@@ -23,7 +23,7 @@ public sealed class CorrelationIdMiddleware
         // Extract or generate correlation ID
         string correlationId = context.Request.Headers.TryGetValue(CorrelationHeader, out StringValues headerValue)
             ? headerValue.ToString()
-            : null;
+            : string.Empty;
 
         // If header is missing or empty, generate a new correlation ID
         if (string.IsNullOrEmpty(correlationId))

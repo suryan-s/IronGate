@@ -110,6 +110,7 @@ public sealed class IronGateDownstreamOptions : AuthenticationSchemeOptions
 /// </summary>
 public sealed class IronGateDownstreamAuthHandler : AuthenticationHandler<IronGateDownstreamOptions>
 {
+#pragma warning disable CS0618 // Type or member is obsolete
     public IronGateDownstreamAuthHandler(
         IOptionsMonitor<IronGateDownstreamOptions> options,
         ILoggerFactory logger,
@@ -118,6 +119,7 @@ public sealed class IronGateDownstreamAuthHandler : AuthenticationHandler<IronGa
         : base(options, logger, encoder, clock)
     {
     }
+#pragma warning restore CS0618
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {

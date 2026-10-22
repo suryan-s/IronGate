@@ -30,7 +30,6 @@ using IronGate.Infrastructure.Resilience;
 using IronGate.Extensions;
 using IronGate.Infrastructure.Redis;
 using Yarp.ReverseProxy.Forwarder;
-using System.Net.Http;
 using System.Security.Cryptography;
 using System.Threading.RateLimiting;
 

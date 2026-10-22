@@ -9,7 +9,6 @@ namespace IronGate.Middleware;
 
 public sealed class FallbackCacheMiddleware(
     RequestDelegate next,
-    IServiceProvider serviceProvider,
     IOptions<FallbackCacheOptions> options,
     ILogger<FallbackCacheMiddleware> logger)
 {
