@@ -78,6 +78,7 @@ public static class RateLimitExtensions
         // Register BOTH stores - factory will pick the right one at runtime
         services.AddSingleton<InMemoryRateLimitStore>();
         services.AddSingleton<RedisRateLimitStore>();
+        services.AddSingleton<IRateLimitStore>(sp => sp.GetRequiredService<InMemoryRateLimitStore>());
 
         // Register the rate limiter service for DI
         services.AddSingleton<RateLimiter>(_ => new FixedWindowRateLimiter(unlimitedOptions));
@@ -217,7 +218,7 @@ public sealed class RateLimitMiddleware
 {
     private readonly RequestDelegate _next;
     private readonly ILogger<RateLimitMiddleware> _logger;
-    private readonly IServiceProvider _serviceProvider;
+    private readonly IRateLimitStore _store;
 
     // Limiter options (injected)
     private readonly SlidingWindowRateLimiterOptions _publicOptions;
@@ -231,14 +232,14 @@ public sealed class RateLimitMiddleware
     public RateLimitMiddleware(
         RequestDelegate next,
         ILogger<RateLimitMiddleware> logger,
-        IServiceProvider serviceProvider,
+        IRateLimitStore store,
         SlidingWindowRateLimiterOptions publicOptions,
         TokenBucketRateLimiterOptions protectedOptions,
         FixedWindowRateLimiterOptions unlimitedOptions)
     {
         _next = next;
         _logger = logger;
-        _serviceProvider = serviceProvider;
+        _store = store;
         _publicOptions = publicOptions;
         _protectedOptions = protectedOptions;
         _unlimitedOptions = unlimitedOptions;
@@ -264,18 +265,6 @@ public sealed class RateLimitMiddleware
 
         string partitionKey;
         TimeSpan fallbackRetryAfter;
-        IRateLimitStore store;
-
-        // Resolve the correct store at runtime based on current config
-        var redisOptions = _serviceProvider.GetRequiredService<IOptions<RedisRateLimitOptions>>().Value;
-        if (redisOptions.Enabled)
-        {
-            store = _serviceProvider.GetRequiredService<RedisRateLimitStore>();
-        }
-        else
-        {
-            store = _serviceProvider.GetRequiredService<InMemoryRateLimitStore>();
-        }
 
         if (path.StartsWith("/api/public/", StringComparison.OrdinalIgnoreCase))
         {
@@ -300,10 +289,10 @@ public sealed class RateLimitMiddleware
         }
 
         _logger.LogDebug("Rate limit check: path={Path}, partitionKey={PartitionKey}, store={Store}",
-            path, partitionKey, store.GetType().Name);
+            path, partitionKey, _store.GetType().Name);
 
         // Try to acquire lease from distributed store
-        var result = await store.AcquireAsync(partitionKey, 1, context.RequestAborted);
+        var result = await _store.AcquireAsync(partitionKey, 1, context.RequestAborted);
 
         _logger.LogDebug("Rate limit result: partitionKey={PartitionKey}, acquired={Acquired}, limit={Limit}, remaining={Remaining}",
             partitionKey, result.IsAllowed, result.Limit, result.Remaining);

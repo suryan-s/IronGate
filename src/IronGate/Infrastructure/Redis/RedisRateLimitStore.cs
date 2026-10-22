@@ -11,7 +11,7 @@ namespace IronGate.Infrastructure.Redis;
 /// Redis-backed distributed rate limit store using sliding window algorithm via Lua script.
 /// Atomic operations ensure consistency across multiple IronGate instances.
 /// </summary>
-public sealed class RedisRateLimitStore : IRateLimitStore, IDisposable
+public sealed class RedisRateLimitStore : IRateLimitStore
 {
     private readonly ConnectionMultiplexer _redis;
     private readonly IDatabase _db;
@@ -166,11 +166,6 @@ public sealed class RedisRateLimitStore : IRateLimitStore, IDisposable
         {
             _logger.LogError(ex, "Redis rate limit remove failed for key {Key}", key);
         }
-    }
-
-    public void Dispose()
-    {
-        // ConnectionMultiplexer is managed externally
     }
 }
 

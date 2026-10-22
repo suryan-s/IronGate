@@ -164,10 +164,11 @@ public class UnitTests
         services.AddLogging();
         
         var provider = services.BuildServiceProvider();
+        var store = provider.GetRequiredService<IRateLimitStore>();
         var middleware = new RateLimitMiddleware(
             async (ctx) => await Task.CompletedTask,
             Mock.Of<ILogger<RateLimitMiddleware>>(),
-            provider,
+            store,
             publicOptions,
             protectedOptions,
             unlimitedOptions);

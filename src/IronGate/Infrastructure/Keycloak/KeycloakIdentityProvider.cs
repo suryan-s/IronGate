@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Collections.Generic;
 using System.Text.Json;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Configuration;
@@ -49,36 +50,8 @@ public sealed class KeycloakIdentityProvider : IdentityProviderBase
         var roles = new List<string>();
 
         // Keycloak stores roles in realm_access.roles (realm-level) and resource_access.{client}.roles (client-level)
-        var realmAccess = user.FindFirst("realm_access")?.Value;
-        if (!string.IsNullOrEmpty(realmAccess))
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(realmAccess);
-                if (doc.RootElement.TryGetProperty("roles", out var rolesElement) && rolesElement.ValueKind == JsonValueKind.Array)
-                {
-                    roles.AddRange(rolesElement.EnumerateArray().Select(r => r.GetString()!).Where(r => !string.IsNullOrEmpty(r)));
-                }
-            }
-            catch { }
-        }
-
-        var resourceAccess = user.FindFirst("resource_access")?.Value;
-        if (!string.IsNullOrEmpty(resourceAccess))
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(resourceAccess);
-                foreach (var client in doc.RootElement.EnumerateObject())
-                {
-                    if (client.Value.TryGetProperty("roles", out var clientRoles) && clientRoles.ValueKind == JsonValueKind.Array)
-                    {
-                        roles.AddRange(clientRoles.EnumerateArray().Select(r => r.GetString()!).Where(r => !string.IsNullOrEmpty(r)));
-                    }
-                }
-            }
-            catch { }
-        }
+        roles.AddRange(ParseRolesFromRealmAccess(user));
+        roles.AddRange(ParseRolesFromResourceAccess(user));
 
         // Fallback to standard role claims
         if (roles.Count == 0)
@@ -95,50 +68,107 @@ public sealed class KeycloakIdentityProvider : IdentityProviderBase
         if (identity == null) return;
 
         // Keycloak: Map realm_access/resource_access to standard role claims for easier access
-        var realmAccess = identity.FindFirst("realm_access")?.Value;
-        if (!string.IsNullOrEmpty(realmAccess))
+        foreach (var role in ParseRolesFromRealmAccessClaims(identity))
         {
-            try
-            {
-                using var doc = JsonDocument.Parse(realmAccess);
-                if (doc.RootElement.TryGetProperty("roles", out var rolesElement) && rolesElement.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var role in rolesElement.EnumerateArray())
-                    {
-                        var roleValue = role.GetString();
-                        if (!string.IsNullOrEmpty(roleValue))
-                        {
-                            identity.AddClaim(new Claim(ClaimTypes.Role, roleValue));
-                        }
-                    }
-                }
-            }
-            catch { }
+            identity.AddClaim(new Claim(ClaimTypes.Role, role));
         }
 
-        // Also map resource_access roles
-        var resourceAccess = identity.FindFirst("resource_access")?.Value;
-        if (!string.IsNullOrEmpty(resourceAccess))
+        foreach (var role in ParseRolesFromResourceAccessClaims(identity))
         {
-            try
+            identity.AddClaim(new Claim(ClaimTypes.Role, role));
+        }
+    }
+
+    private static List<string> ParseRolesFromJsonElement(JsonElement element)
+    {
+        var roles = new List<string>();
+        if (element.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var role in element.EnumerateArray())
             {
-                using var doc = JsonDocument.Parse(resourceAccess);
-                foreach (var client in doc.RootElement.EnumerateObject())
+                var roleValue = role.GetString();
+                if (!string.IsNullOrEmpty(roleValue))
+                    roles.Add(roleValue);
+            }
+        }
+        return roles;
+    }
+
+    private List<string> ParseRolesFromRealmAccess(ClaimsPrincipal user)
+    {
+        var roles = new List<string>();
+        var realmAccess = user.FindFirst("realm_access")?.Value;
+        if (string.IsNullOrEmpty(realmAccess)) return roles;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(realmAccess);
+            if (doc.RootElement.TryGetProperty("roles", out var rolesElement))
+            {
+                roles.AddRange(ParseRolesFromJsonElement(rolesElement));
+            }
+        }
+        catch { }
+        return roles;
+    }
+
+    private List<string> ParseRolesFromResourceAccess(ClaimsPrincipal user)
+    {
+        var roles = new List<string>();
+        var resourceAccess = user.FindFirst("resource_access")?.Value;
+        if (string.IsNullOrEmpty(resourceAccess)) return roles;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(resourceAccess);
+            foreach (var client in doc.RootElement.EnumerateObject())
+            {
+                if (client.Value.TryGetProperty("roles", out var clientRoles))
                 {
-                    if (client.Value.TryGetProperty("roles", out var clientRoles) && clientRoles.ValueKind == JsonValueKind.Array)
-                    {
-                        foreach (var role in clientRoles.EnumerateArray())
-                        {
-                            var roleValue = role.GetString();
-                            if (!string.IsNullOrEmpty(roleValue))
-                            {
-                                identity.AddClaim(new Claim(ClaimTypes.Role, roleValue));
-                            }
-                        }
-                    }
+                    roles.AddRange(ParseRolesFromJsonElement(clientRoles));
                 }
             }
-            catch { }
         }
+        catch { }
+        return roles;
+    }
+
+    private List<string> ParseRolesFromRealmAccessClaims(ClaimsIdentity identity)
+    {
+        var roles = new List<string>();
+        var realmAccess = identity.FindFirst("realm_access")?.Value;
+        if (string.IsNullOrEmpty(realmAccess)) return roles;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(realmAccess);
+            if (doc.RootElement.TryGetProperty("roles", out var rolesElement))
+            {
+                roles.AddRange(ParseRolesFromJsonElement(rolesElement));
+            }
+        }
+        catch { }
+        return roles;
+    }
+
+    private List<string> ParseRolesFromResourceAccessClaims(ClaimsIdentity identity)
+    {
+        var roles = new List<string>();
+        var resourceAccess = identity.FindFirst("resource_access")?.Value;
+        if (string.IsNullOrEmpty(resourceAccess)) return roles;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(resourceAccess);
+            foreach (var client in doc.RootElement.EnumerateObject())
+            {
+                if (client.Value.TryGetProperty("roles", out var clientRoles))
+                {
+                    roles.AddRange(ParseRolesFromJsonElement(clientRoles));
+                }
+            }
+        }
+        catch { }
+        return roles;
     }
 }

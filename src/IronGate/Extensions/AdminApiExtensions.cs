@@ -189,8 +189,14 @@ public sealed class AdminApiMiddleware
         }
         else
         {
-            // Clear all - would need to implement in stores
-            await context.Response.WriteAsJsonAsync(new { message = "Cache clear all not fully implemented" });
+            context.Response.StatusCode = StatusCodes.Status501NotImplemented;
+            await context.Response.WriteAsJsonAsync(new
+            {
+                type = "https://httpstatuses.com/501",
+                title = "Not Implemented",
+                status = 501,
+                detail = "Cache clear all not implemented"
+            });
         }
     }
 
