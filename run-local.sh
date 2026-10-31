@@ -24,4 +24,4 @@ echo "OTEL: $OTEL_ENDPOINT"
 echo ""
 
 cd "${SCRIPT_DIR}/src/IronGate"
-exec dotnet run --no-build
+exec dotnet run

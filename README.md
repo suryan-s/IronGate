@@ -283,7 +283,7 @@ docker compose up -d redis keycloak echo
 ./run-local.sh
 
 # Option B: Manual (equivalent to run-local.sh)
-source .env && cd src/IronGate && dotnet run --no-build
+source .env && cd src/IronGate && dotnet run
 ```
 
 ### 3. Get Keycloak Token
