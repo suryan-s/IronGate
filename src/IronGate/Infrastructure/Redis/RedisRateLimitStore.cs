@@ -74,24 +74,24 @@ public sealed class RedisRateLimitStore : IRateLimitStore
 
     public async ValueTask<RateLimitResult> AcquireAsync(string partitionKey, int permitCount, CancellationToken cancellationToken = default)
     {
-        var key = $"{_options.KeyPrefix}{partitionKey}";
-        var windowMs = (long)_options.Window.TotalMilliseconds;
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        string key = $"{_options.KeyPrefix}{partitionKey}";
+        long windowMs = (long)_options.Window.TotalMilliseconds;
+        long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
         try
         {
-            var result = await _db.ScriptEvaluateAsync(
+            RedisResult result = await _db.ScriptEvaluateAsync(
                 SlidingWindowScript,
                 new RedisKey[] { key },
                 new RedisValue[] { windowMs, _options.PermitLimit, now, permitCount });
 
-            var resultArray = (RedisResult[])result!;
-            var acquired = (bool)resultArray[0];
-            var remaining = (long)resultArray[1];
-            var resetEpoch = (long)resultArray[2];
-            var retryAfter = (long)resultArray[3];
+            RedisResult[] resultArray = (RedisResult[])result!;
+            bool acquired = (bool)resultArray[0];
+            long remaining = (long)resultArray[1];
+            long resetEpoch = (long)resultArray[2];
+            long retryAfter = (long)resultArray[3];
 
-            var limit = _options.PermitLimit;
+            long limit = _options.PermitLimit;
 
             if (acquired)
             {
@@ -124,15 +124,15 @@ public sealed class RedisRateLimitStore : IRateLimitStore
 
     public async ValueTask<long> GetAvailablePermitsAsync(string partitionKey, CancellationToken cancellationToken = default)
     {
-        var key = $"{_options.KeyPrefix}{partitionKey}";
-        var windowMs = (long)_options.Window.TotalMilliseconds;
-        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var windowStart = now - windowMs;
+        string key = $"{_options.KeyPrefix}{partitionKey}";
+        long windowMs = (long)_options.Window.TotalMilliseconds;
+        long now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        long windowStart = now - windowMs;
 
         try
         {
             await _db.SortedSetRemoveRangeByScoreAsync(key, double.NegativeInfinity, windowStart);
-            var current = await _db.SortedSetLengthAsync(key);
+            long current = await _db.SortedSetLengthAsync(key);
             return Math.Max(0, _options.PermitLimit - current);
         }
         catch (Exception ex)
@@ -144,7 +144,7 @@ public sealed class RedisRateLimitStore : IRateLimitStore
 
     public async ValueTask ResetAsync(string partitionKey, CancellationToken cancellationToken = default)
     {
-        var key = $"{_options.KeyPrefix}{partitionKey}";
+        string key = $"{_options.KeyPrefix}{partitionKey}";
         try
         {
             await _db.KeyDeleteAsync(key);
@@ -157,7 +157,7 @@ public sealed class RedisRateLimitStore : IRateLimitStore
 
     public async ValueTask RemoveAsync(string partitionKey, CancellationToken cancellationToken = default)
     {
-        var key = $"{_options.KeyPrefix}{partitionKey}";
+        string key = $"{_options.KeyPrefix}{partitionKey}";
         try
         {
             await _db.KeyDeleteAsync(key);

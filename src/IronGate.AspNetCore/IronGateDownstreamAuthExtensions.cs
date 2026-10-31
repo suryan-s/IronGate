@@ -27,7 +27,7 @@ public static class IronGateDownstreamAuthExtensions
         this IServiceCollection services,
         Action<IronGateDownstreamOptions>? configureOptions = null)
     {
-        var options = new IronGateDownstreamOptions();
+        IronGateDownstreamOptions options = new IronGateDownstreamOptions();
         configureOptions?.Invoke(options);
 
         services.AddSingleton(options);
@@ -123,11 +123,11 @@ public sealed class IronGateDownstreamAuthHandler : AuthenticationHandler<IronGa
 
     protected override async Task<AuthenticateResult> HandleAuthenticateAsync()
     {
-        var userId = Request.Headers[Options.UserIdHeader].FirstOrDefault();
-        var username = Request.Headers[Options.UsernameHeader].FirstOrDefault();
-        var rolesHeader = Request.Headers[Options.RolesHeader].FirstOrDefault();
-        var correlationId = Request.Headers[Options.CorrelationIdHeader].FirstOrDefault();
-        var gatewaySecret = Request.Headers[Options.GatewaySecretHeader].FirstOrDefault();
+        string? userId = Request.Headers[Options.UserIdHeader].FirstOrDefault();
+        string? username = Request.Headers[Options.UsernameHeader].FirstOrDefault();
+        string? rolesHeader = Request.Headers[Options.RolesHeader].FirstOrDefault();
+        string? correlationId = Request.Headers[Options.CorrelationIdHeader].FirstOrDefault();
+        string? gatewaySecret = Request.Headers[Options.GatewaySecretHeader].FirstOrDefault();
 
         // Zero-trust gateway verification: validate shared secret if configured
         if (!string.IsNullOrEmpty(Options.SharedSecret))
@@ -138,8 +138,8 @@ public sealed class IronGateDownstreamAuthHandler : AuthenticationHandler<IronGa
             }
 
             // Use FixedTimeEquals to prevent timing attacks
-            var expectedBytes = System.Text.Encoding.UTF8.GetBytes(Options.SharedSecret);
-            var actualBytes = System.Text.Encoding.UTF8.GetBytes(gatewaySecret);
+            byte[] expectedBytes = System.Text.Encoding.UTF8.GetBytes(Options.SharedSecret);
+            byte[] actualBytes = System.Text.Encoding.UTF8.GetBytes(gatewaySecret);
 
             if (!CryptographicOperations.FixedTimeEquals(expectedBytes, actualBytes))
             {
@@ -160,7 +160,7 @@ public sealed class IronGateDownstreamAuthHandler : AuthenticationHandler<IronGa
         }
 
         // Build claims
-        var claims = new List<Claim>();
+        List<Claim> claims = new List<Claim>();
 
         if (!string.IsNullOrEmpty(userId))
         {
@@ -174,7 +174,7 @@ public sealed class IronGateDownstreamAuthHandler : AuthenticationHandler<IronGa
 
         if (!string.IsNullOrEmpty(rolesHeader))
         {
-            foreach (var role in rolesHeader.Split(Options.RolesSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            foreach (string role in rolesHeader.Split(Options.RolesSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             {
                 claims.Add(new Claim(ClaimTypes.Role, role));
             }
@@ -185,9 +185,9 @@ public sealed class IronGateDownstreamAuthHandler : AuthenticationHandler<IronGa
             claims.Add(new Claim("correlation_id", correlationId));
         }
 
-        var identity = new ClaimsIdentity(claims, IronGateDownstreamDefaults.AuthenticationScheme);
-        var principal = new ClaimsPrincipal(identity);
-        var ticket = new AuthenticationTicket(principal, IronGateDownstreamDefaults.AuthenticationScheme);
+        ClaimsIdentity identity = new ClaimsIdentity(claims, IronGateDownstreamDefaults.AuthenticationScheme);
+        ClaimsPrincipal principal = new ClaimsPrincipal(identity);
+        AuthenticationTicket ticket = new AuthenticationTicket(principal, IronGateDownstreamDefaults.AuthenticationScheme);
 
         return AuthenticateResult.Success(ticket);
     }
@@ -207,7 +207,7 @@ public sealed class IronGateCorrelationIdMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        var correlationId = context.Request.Headers["X-Correlation-Id"].FirstOrDefault();
+        string? correlationId = context.Request.Headers["X-Correlation-Id"].FirstOrDefault();
         if (!string.IsNullOrEmpty(correlationId))
         {
             context.Items["CorrelationId"] = correlationId;

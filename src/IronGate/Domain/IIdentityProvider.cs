@@ -86,7 +86,7 @@ public abstract class IdentityProviderBase : IIdentityProvider
 
     public virtual IReadOnlyList<string> GetRoles(ClaimsPrincipal user)
     {
-        var roles = new List<string>();
+        List<string> roles = new List<string>();
         roles.AddRange(user.FindAll(ClaimTypes.Role).Select(c => c.Value));
         roles.AddRange(user.FindAll("roles").Select(c => c.Value));
         return roles.Distinct().ToList();
@@ -123,7 +123,7 @@ public sealed class IdentityProviderRegistry : IIdentityProviderRegistry
 
     public IIdentityProvider? GetProvider(string name)
     {
-        _providers.TryGetValue(name, out var provider);
+        _providers.TryGetValue(name, out IIdentityProvider? provider);
         return provider;
     }
 

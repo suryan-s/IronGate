@@ -39,7 +39,7 @@ public sealed class RedisFallbackCacheStore : IFallbackCacheStore
 
     public async ValueTask<CachedResponseSnapshot?> GetAsync(string cacheKey, CancellationToken cancellationToken = default)
     {
-        var fullKey = $"irongate:fallback:{cacheKey}";
+        string fullKey = $"irongate:fallback:{cacheKey}";
 
         // L1: Check in-memory cache first
         if (_memoryCache.TryGetValue(fullKey, out CachedResponseSnapshot? l1Snapshot))
@@ -51,11 +51,11 @@ public sealed class RedisFallbackCacheStore : IFallbackCacheStore
         // L2: Check Redis
         try
         {
-            var redisValue = await _db.StringGetAsync(fullKey);
+            RedisValue redisValue = await _db.StringGetAsync(fullKey);
             if (redisValue.HasValue)
             {
-                var json = redisValue.ToString();
-                var snapshot = JsonSerializer.Deserialize<CachedResponseSnapshot>(json, _jsonOptions);
+                string json = redisValue.ToString();
+                CachedResponseSnapshot? snapshot = JsonSerializer.Deserialize<CachedResponseSnapshot>(json, _jsonOptions);
                 if (snapshot != null)
                 {
                     // Populate L1 cache with shorter TTL (e.g., 30s)
@@ -80,7 +80,7 @@ public sealed class RedisFallbackCacheStore : IFallbackCacheStore
 
     public async ValueTask SetAsync(string cacheKey, CachedResponseSnapshot snapshot, TimeSpan ttl, CancellationToken cancellationToken = default)
     {
-        var fullKey = $"irongate:fallback:{cacheKey}";
+        string fullKey = $"irongate:fallback:{cacheKey}";
 
         // L1: Set in memory with short TTL (30s)
         _memoryCache.Set(fullKey, snapshot, TimeSpan.FromSeconds(L1_TTL_SECONDS));
@@ -88,7 +88,7 @@ public sealed class RedisFallbackCacheStore : IFallbackCacheStore
         // L2: Set in Redis with full TTL
         try
         {
-            var json = JsonSerializer.Serialize(snapshot, _jsonOptions);
+            string json = JsonSerializer.Serialize(snapshot, _jsonOptions);
             await _db.StringSetAsync(fullKey, json, ttl);
             _logger.LogDebug("Fallback cache SET (L1+L2): {Key}, TTL={TTL}s", cacheKey, ttl.TotalSeconds);
         }
@@ -104,7 +104,7 @@ public sealed class RedisFallbackCacheStore : IFallbackCacheStore
 
     public async ValueTask RemoveAsync(string cacheKey, CancellationToken cancellationToken = default)
     {
-        var fullKey = $"irongate:fallback:{cacheKey}";
+        string fullKey = $"irongate:fallback:{cacheKey}";
         
         // Remove from L1
         _memoryCache.Remove(fullKey);

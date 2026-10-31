@@ -44,31 +44,31 @@ public class UnitTests
     [Fact]
     public async Task CorrelationIdMiddleware_AddsCorrelationId_WhenMissing()
     {
-        var logger = new Mock<ILogger<CorrelationIdMiddleware>>();
-        var middleware = new CorrelationIdMiddleware(
+        Mock<ILogger<CorrelationIdMiddleware>> logger = new Mock<ILogger<CorrelationIdMiddleware>>();
+        CorrelationIdMiddleware middleware = new CorrelationIdMiddleware(
             async (ctx) => await Task.CompletedTask,
             logger.Object);
 
-        var context = new DefaultHttpContext();
+        DefaultHttpContext context = new DefaultHttpContext();
         context.Request.Headers["X-Correlation-Id"] = "";
         context.Response.Body = new MemoryStream();
 
         await middleware.InvokeAsync(context);
 
-        var headerValue = context.Response.Headers["X-Correlation-Id"].ToString();
+        string headerValue = context.Response.Headers["X-Correlation-Id"].ToString();
         Assert.False(string.IsNullOrEmpty(headerValue));
     }
 
     [Fact]
     public async Task CorrelationIdMiddleware_PreservesExistingCorrelationId()
     {
-        var logger = new Mock<ILogger<CorrelationIdMiddleware>>();
-        var middleware = new CorrelationIdMiddleware(
+        Mock<ILogger<CorrelationIdMiddleware>> logger = new Mock<ILogger<CorrelationIdMiddleware>>();
+        CorrelationIdMiddleware middleware = new CorrelationIdMiddleware(
             async (ctx) => await Task.CompletedTask,
             logger.Object);
 
-        var context = new DefaultHttpContext();
-        var existingId = "existing-correlation-123";
+        DefaultHttpContext context = new DefaultHttpContext();
+        string existingId = "existing-correlation-123";
         context.Request.Headers["X-Correlation-Id"] = existingId;
         context.Response.Body = new MemoryStream();
 
@@ -84,17 +84,17 @@ public class UnitTests
     [Fact]
     public async Task LoadSheddingMiddleware_AllowsRequest_WhenUnderLimit()
     {
-        var options = new LoadSheddingOptions { Enabled = true, MaxConcurrentRequests = 10 };
-        var logger = new Mock<ILogger<LoadSheddingMiddleware>>();
-        var meter = new Meter("Test");
+        LoadSheddingOptions options = new LoadSheddingOptions { Enabled = true, MaxConcurrentRequests = 10 };
+        Mock<ILogger<LoadSheddingMiddleware>> logger = new Mock<ILogger<LoadSheddingMiddleware>>();
+        Meter meter = new Meter("Test");
         
-        var middleware = new LoadSheddingMiddleware(
+        LoadSheddingMiddleware middleware = new LoadSheddingMiddleware(
             async (ctx) => await Task.CompletedTask,
             Mock.Of<ILogger<LoadSheddingMiddleware>>(),
             Options.Create(options),
             meter);
 
-        var context = new DefaultHttpContext();
+        DefaultHttpContext context = new DefaultHttpContext();
         context.Response.Body = new MemoryStream();
 
         await middleware.InvokeAsync(context);
@@ -105,17 +105,17 @@ public class UnitTests
     [Fact]
     public async Task LoadSheddingMiddleware_AllowsPriorityRequest()
     {
-        var options = new LoadSheddingOptions { Enabled = true, MaxConcurrentRequests = 1 };
-        var logger = new Mock<ILogger<LoadSheddingMiddleware>>();
-        var meter = new Meter("Test");
+        LoadSheddingOptions options = new LoadSheddingOptions { Enabled = true, MaxConcurrentRequests = 1 };
+        Mock<ILogger<LoadSheddingMiddleware>> logger = new Mock<ILogger<LoadSheddingMiddleware>>();
+        Meter meter = new Meter("Test");
         
-        var middleware = new LoadSheddingMiddleware(
+        LoadSheddingMiddleware middleware = new LoadSheddingMiddleware(
             async (ctx) => await Task.CompletedTask,
             Mock.Of<ILogger<LoadSheddingMiddleware>>(),
             Options.Create(options),
             meter);
 
-        var context = new DefaultHttpContext();
+        DefaultHttpContext context = new DefaultHttpContext();
         context.Request.Headers["X-IronGate-Priority"] = "high";
         context.Response.Body = new MemoryStream();
 
@@ -131,7 +131,7 @@ public class UnitTests
     [Fact]
     public async Task RateLimitMiddleware_AddsRateLimitHeaders()
     {
-        var publicOptions = new SlidingWindowRateLimiterOptions
+        SlidingWindowRateLimiterOptions publicOptions = new SlidingWindowRateLimiterOptions
         {
             PermitLimit = 10,
             Window = TimeSpan.FromSeconds(60),
@@ -139,7 +139,7 @@ public class UnitTests
             QueueLimit = 0
         };
 
-        var protectedOptions = new TokenBucketRateLimiterOptions
+        TokenBucketRateLimiterOptions protectedOptions = new TokenBucketRateLimiterOptions
         {
             TokenLimit = 20,
             TokensPerPeriod = 5,
@@ -148,14 +148,14 @@ public class UnitTests
             QueueLimit = 0
         };
 
-        var unlimitedOptions = new FixedWindowRateLimiterOptions
+        FixedWindowRateLimiterOptions unlimitedOptions = new FixedWindowRateLimiterOptions
         {
             PermitLimit = int.MaxValue,
             Window = TimeSpan.FromSeconds(1),
             QueueLimit = 0
         };
 
-        var services = new ServiceCollection();
+        ServiceCollection services = new ServiceCollection();
         services.AddSingleton(publicOptions);
         services.AddSingleton(protectedOptions);
         services.AddSingleton(unlimitedOptions);
@@ -163,9 +163,9 @@ public class UnitTests
         services.AddSingleton<IRateLimitStore>(sp => sp.GetRequiredService<InMemoryRateLimitStore>());
         services.AddLogging();
         
-        var provider = services.BuildServiceProvider();
-        var store = provider.GetRequiredService<IRateLimitStore>();
-        var middleware = new RateLimitMiddleware(
+        ServiceProvider provider = services.BuildServiceProvider();
+        IRateLimitStore store = provider.GetRequiredService<IRateLimitStore>();
+        RateLimitMiddleware middleware = new RateLimitMiddleware(
             async (ctx) => await Task.CompletedTask,
             Mock.Of<ILogger<RateLimitMiddleware>>(),
             store,
@@ -174,7 +174,7 @@ public class UnitTests
             unlimitedOptions);
 
         // Test public route
-        var context = new DefaultHttpContext();
+        DefaultHttpContext context = new DefaultHttpContext();
         context.Request.Path = "/api/public/test";
         context.Connection.RemoteIpAddress = System.Net.IPAddress.Parse("192.168.1.1");
         context.Response.Body = new MemoryStream();
@@ -193,7 +193,7 @@ public class UnitTests
     [Fact]
     public async Task InMemoryRateLimitStore_AcquireAsync_ReturnsAllowed()
     {
-        var publicOptions = new SlidingWindowRateLimiterOptions
+        SlidingWindowRateLimiterOptions publicOptions = new SlidingWindowRateLimiterOptions
         {
             PermitLimit = 10,
             Window = TimeSpan.FromSeconds(60),
@@ -201,7 +201,7 @@ public class UnitTests
             QueueLimit = 0
         };
 
-        var protectedOptions = new TokenBucketRateLimiterOptions
+        TokenBucketRateLimiterOptions protectedOptions = new TokenBucketRateLimiterOptions
         {
             TokenLimit = 20,
             TokensPerPeriod = 5,
@@ -210,16 +210,16 @@ public class UnitTests
             QueueLimit = 0
         };
 
-        var unlimitedOptions = new FixedWindowRateLimiterOptions
+        FixedWindowRateLimiterOptions unlimitedOptions = new FixedWindowRateLimiterOptions
         {
             PermitLimit = int.MaxValue,
             Window = TimeSpan.FromSeconds(1),
             QueueLimit = 0
         };
 
-        var store = new InMemoryRateLimitStore(publicOptions, protectedOptions, unlimitedOptions);
+        InMemoryRateLimitStore store = new InMemoryRateLimitStore(publicOptions, protectedOptions, unlimitedOptions);
 
-        var result = await store.AcquireAsync("public:192.168.1.1", 1);
+        RateLimitResult result = await store.AcquireAsync("public:192.168.1.1", 1);
 
         Assert.True(result.IsAllowed);
         Assert.Equal(10, result.Limit);
@@ -229,7 +229,7 @@ public class UnitTests
     [Fact]
     public async Task InMemoryRateLimitStore_AcquireAsync_ResetsCorrectly()
     {
-        var publicOptions = new SlidingWindowRateLimiterOptions
+        SlidingWindowRateLimiterOptions publicOptions = new SlidingWindowRateLimiterOptions
         {
             PermitLimit = 10,
             Window = TimeSpan.FromSeconds(60),
@@ -237,7 +237,7 @@ public class UnitTests
             QueueLimit = 0
         };
 
-        var protectedOptions = new TokenBucketRateLimiterOptions
+        TokenBucketRateLimiterOptions protectedOptions = new TokenBucketRateLimiterOptions
         {
             TokenLimit = 20,
             TokensPerPeriod = 5,
@@ -246,19 +246,19 @@ public class UnitTests
             QueueLimit = 0
         };
 
-        var unlimitedOptions = new FixedWindowRateLimiterOptions
+        FixedWindowRateLimiterOptions unlimitedOptions = new FixedWindowRateLimiterOptions
         {
             PermitLimit = int.MaxValue,
             Window = TimeSpan.FromSeconds(1),
             QueueLimit = 0
         };
 
-        var store = new InMemoryRateLimitStore(publicOptions, protectedOptions, unlimitedOptions);
+        InMemoryRateLimitStore store = new InMemoryRateLimitStore(publicOptions, protectedOptions, unlimitedOptions);
 
         await store.AcquireAsync("public:192.168.1.1", 1);
         await store.ResetAsync("public:192.168.1.1");
 
-        var result = await store.AcquireAsync("public:192.168.1.1", 1);
+        RateLimitResult result = await store.AcquireAsync("public:192.168.1.1", 1);
         Assert.True(result.IsAllowed);
     }
 
@@ -269,17 +269,17 @@ public class UnitTests
     [Fact]
     public async Task InMemoryFallbackCacheStore_GetSet_Works()
     {
-        var memoryCache = new MemoryCache(new MemoryCacheOptions());
-        var store = new InMemoryFallbackCacheStore(memoryCache);
+        MemoryCache memoryCache = new MemoryCache(new MemoryCacheOptions());
+        InMemoryFallbackCacheStore store = new InMemoryFallbackCacheStore(memoryCache);
 
-        var snapshot = new CachedResponseSnapshot(
+        CachedResponseSnapshot snapshot = new CachedResponseSnapshot(
             StatusCodes.Status200OK,
             "application/json",
             System.Text.Encoding.UTF8.GetBytes("{\"test\":\"data\"}"),
             DateTimeOffset.UtcNow);
 
         await store.SetAsync("test-key", snapshot, TimeSpan.FromSeconds(60));
-        var result = await store.GetAsync("test-key");
+        CachedResponseSnapshot? result = await store.GetAsync("test-key");
 
         Assert.NotNull(result);
         Assert.Equal(StatusCodes.Status200OK, result.StatusCode);
@@ -289,10 +289,10 @@ public class UnitTests
     [Fact]
     public async Task InMemoryFallbackCacheStore_RemoveAsync_Works()
     {
-        var memoryCache = new MemoryCache(new MemoryCacheOptions());
-        var store = new InMemoryFallbackCacheStore(memoryCache);
+        MemoryCache memoryCache = new MemoryCache(new MemoryCacheOptions());
+        InMemoryFallbackCacheStore store = new InMemoryFallbackCacheStore(memoryCache);
 
-        var snapshot = new CachedResponseSnapshot(
+        CachedResponseSnapshot snapshot = new CachedResponseSnapshot(
             StatusCodes.Status200OK,
             "application/json",
             System.Text.Encoding.UTF8.GetBytes("{\"test\":\"data\"}"),
@@ -301,7 +301,7 @@ public class UnitTests
         await store.SetAsync("test-key", snapshot, TimeSpan.FromSeconds(60));
         await store.RemoveAsync("test-key");
         
-        var result = await store.GetAsync("test-key");
+        CachedResponseSnapshot? result = await store.GetAsync("test-key");
         Assert.Null(result);
     }
 
@@ -312,16 +312,16 @@ public class UnitTests
     [Fact]
     public void KeycloakIdentityProvider_GetUserId_ReturnsSub()
     {
-        var provider = new KeycloakIdentityProvider();
-        var claims = new List<Claim>
+        KeycloakIdentityProvider provider = new KeycloakIdentityProvider();
+        List<Claim> claims = new List<Claim>
         {
             new Claim("sub", "user-123"),
             new Claim("preferred_username", "testuser")
         };
-        var identity = new ClaimsIdentity(claims);
-        var principal = new ClaimsPrincipal(identity);
+        ClaimsIdentity identity = new ClaimsIdentity(claims);
+        ClaimsPrincipal principal = new ClaimsPrincipal(identity);
 
-        var userId = provider.GetUserId(principal);
+        string? userId = provider.GetUserId(principal);
 
         Assert.Equal("user-123", userId);
     }
@@ -329,16 +329,16 @@ public class UnitTests
     [Fact]
     public void KeycloakIdentityProvider_GetUsername_ReturnsPreferredUsername()
     {
-        var provider = new KeycloakIdentityProvider();
-        var claims = new List<Claim>
+        KeycloakIdentityProvider provider = new KeycloakIdentityProvider();
+        List<Claim> claims = new List<Claim>
         {
             new Claim("sub", "user-123"),
             new Claim("preferred_username", "testuser")
         };
-        var identity = new ClaimsIdentity(claims);
-        var principal = new ClaimsPrincipal(identity);
+        ClaimsIdentity identity = new ClaimsIdentity(claims);
+        ClaimsPrincipal principal = new ClaimsPrincipal(identity);
 
-        var username = provider.GetUsername(principal);
+        string? username = provider.GetUsername(principal);
 
         Assert.Equal("testuser", username);
     }
@@ -346,17 +346,17 @@ public class UnitTests
     [Fact]
     public void KeycloakIdentityProvider_GetRoles_ExtractsFromRealmAccess()
     {
-        var provider = new KeycloakIdentityProvider();
-        var realmAccess = JsonSerializer.Serialize(new { roles = new[] { "admin", "user" } });
-        var claims = new List<Claim>
+        KeycloakIdentityProvider provider = new KeycloakIdentityProvider();
+        string realmAccess = JsonSerializer.Serialize(new { roles = new[] { "admin", "user" } });
+        List<Claim> claims = new List<Claim>
         {
             new Claim("sub", "user-123"),
             new Claim("realm_access", realmAccess)
         };
-        var identity = new ClaimsIdentity(claims);
-        var principal = new ClaimsPrincipal(identity);
+        ClaimsIdentity identity = new ClaimsIdentity(claims);
+        ClaimsPrincipal principal = new ClaimsPrincipal(identity);
 
-        var roles = provider.GetRoles(principal);
+        IReadOnlyList<string> roles = provider.GetRoles(principal);
 
         Assert.Contains("admin", roles);
         Assert.Contains("user", roles);
@@ -365,14 +365,14 @@ public class UnitTests
     [Fact]
     public void KeycloakIdentityProvider_MapClaims_AddsRoleClaims()
     {
-        var provider = new KeycloakIdentityProvider();
-        var realmAccess = JsonSerializer.Serialize(new { roles = new[] { "admin", "user" } });
-        var claims = new List<Claim>
+        KeycloakIdentityProvider provider = new KeycloakIdentityProvider();
+        string realmAccess = JsonSerializer.Serialize(new { roles = new[] { "admin", "user" } });
+        List<Claim> claims = new List<Claim>
         {
             new Claim("sub", "user-123"),
             new Claim("realm_access", realmAccess)
         };
-        var identity = new ClaimsIdentity(claims);
+        ClaimsIdentity identity = new ClaimsIdentity(claims);
 
         provider.MapClaims(identity);
 
@@ -387,14 +387,14 @@ public class UnitTests
     [Fact]
     public async Task AdminApiMiddleware_Returns401_WhenNoApiKey()
     {
-        var options = new AdminApiOptions { ApiKey = "secret-key" };
-        var logger = Mock.Of<ILogger<AdminApiMiddleware>>();
-        var middleware = new AdminApiMiddleware(
+        AdminApiOptions options = new AdminApiOptions { ApiKey = "secret-key" };
+        ILogger<AdminApiMiddleware> logger = Mock.Of<ILogger<AdminApiMiddleware>>();
+        AdminApiMiddleware middleware = new AdminApiMiddleware(
             async (ctx) => await Task.CompletedTask,
             Options.Create(options),
             Mock.Of<ILogger<AdminApiMiddleware>>());
 
-        var context = new DefaultHttpContext();
+        DefaultHttpContext context = new DefaultHttpContext();
         context.Request.Path = "/admin/status";
         context.Response.Body = new MemoryStream();
 
@@ -406,14 +406,14 @@ public class UnitTests
     [Fact]
     public async Task AdminApiMiddleware_Returns401_WhenWrongApiKey()
     {
-        var options = new AdminApiOptions { ApiKey = "secret-key" };
-        var logger = Mock.Of<ILogger<AdminApiMiddleware>>();
-        var middleware = new AdminApiMiddleware(
+        AdminApiOptions options = new AdminApiOptions { ApiKey = "secret-key" };
+        ILogger<AdminApiMiddleware> logger = Mock.Of<ILogger<AdminApiMiddleware>>();
+        AdminApiMiddleware middleware = new AdminApiMiddleware(
             async (ctx) => await Task.CompletedTask,
             Options.Create(options),
             Mock.Of<ILogger<AdminApiMiddleware>>());
 
-        var context = new DefaultHttpContext();
+        DefaultHttpContext context = new DefaultHttpContext();
         context.Request.Path = "/admin/status";
         context.Request.Headers["X-IronGate-Admin-Key"] = "wrong-key";
         context.Response.Body = new MemoryStream();
@@ -426,14 +426,14 @@ public class UnitTests
     [Fact]
     public async Task AdminApiMiddleware_Returns404_ForUnknownPath()
     {
-        var options = new AdminApiOptions { ApiKey = "secret-key" };
-        var logger = Mock.Of<ILogger<AdminApiMiddleware>>();
-        var middleware = new AdminApiMiddleware(
+        AdminApiOptions options = new AdminApiOptions { ApiKey = "secret-key" };
+        ILogger<AdminApiMiddleware> logger = Mock.Of<ILogger<AdminApiMiddleware>>();
+        AdminApiMiddleware middleware = new AdminApiMiddleware(
             async (ctx) => await Task.CompletedTask,
             Options.Create(options),
             Mock.Of<ILogger<AdminApiMiddleware>>());
 
-        var context = new DefaultHttpContext();
+        DefaultHttpContext context = new DefaultHttpContext();
         context.Request.Path = "/admin/unknown";
         context.Request.Headers["X-IronGate-Admin-Key"] = "secret-key";
         context.Response.Body = new MemoryStream();
@@ -450,7 +450,7 @@ public class UnitTests
     [Fact]
     public void AdminApiOptions_Defaults()
     {
-        var options = new AdminApiOptions();
+        AdminApiOptions options = new AdminApiOptions();
         Assert.Equal("Admin", AdminApiOptions.SectionName);
         Assert.Equal(string.Empty, options.ApiKey);
     }
@@ -458,7 +458,7 @@ public class UnitTests
     [Fact]
     public void LoadSheddingOptions_Defaults()
     {
-        var options = new LoadSheddingOptions();
+        LoadSheddingOptions options = new LoadSheddingOptions();
         Assert.Equal("LoadShedding", LoadSheddingOptions.SectionName);
         Assert.True(options.Enabled);
         Assert.Equal(500, options.MaxConcurrentRequests);
@@ -468,7 +468,7 @@ public class UnitTests
     [Fact]
     public void ResilienceOptions_Defaults()
     {
-        var options = new ResilienceOptions();
+        ResilienceOptions options = new ResilienceOptions();
         Assert.Equal("Resilience", ResilienceOptions.SectionName);
         Assert.True(options.Enabled);
         Assert.Equal(10, options.TotalRequestTimeoutSeconds);
@@ -479,7 +479,7 @@ public class UnitTests
     [Fact]
     public void HedgingConfig_Defaults()
     {
-        var config = new HedgingConfig();
+        HedgingConfig config = new HedgingConfig();
         Assert.True(config.Enabled);
         Assert.Equal(2, config.MaxHedgedAttempts);
         Assert.Equal(150, config.DelayMs);
@@ -488,7 +488,7 @@ public class UnitTests
     [Fact]
     public void CircuitBreakerConfig_Defaults()
     {
-        var config = new CircuitBreakerConfig();
+        CircuitBreakerConfig config = new CircuitBreakerConfig();
         Assert.True(config.Enabled);
         Assert.Equal(0.5, config.FailureRatio);
         Assert.Equal(5, config.MinimumThroughput);
@@ -499,7 +499,7 @@ public class UnitTests
     [Fact]
     public void FallbackCacheOptions_Defaults()
     {
-        var options = new FallbackCacheOptions();
+        FallbackCacheOptions options = new FallbackCacheOptions();
         Assert.Equal("FallbackCache", FallbackCacheOptions.SectionName);
         Assert.True(options.Enabled);
         Assert.Equal(300, options.TtlSeconds);
@@ -510,7 +510,7 @@ public class UnitTests
     [Fact]
     public void RedisRateLimitOptions_Defaults()
     {
-        var options = new RedisRateLimitOptions();
+        RedisRateLimitOptions options = new RedisRateLimitOptions();
         Assert.Equal("RateLimiting:Redis", RedisRateLimitOptions.SectionName);
         Assert.False(options.Enabled);
         Assert.Equal("localhost:6379", options.ConnectionString);
@@ -522,7 +522,7 @@ public class UnitTests
     [Fact]
     public void RedisFallbackCacheOptions_Defaults()
     {
-        var options = new RedisFallbackCacheOptions();
+        RedisFallbackCacheOptions options = new RedisFallbackCacheOptions();
         Assert.Equal("FallbackCache:Redis", RedisFallbackCacheOptions.SectionName);
         Assert.Equal("localhost:6379", options.ConnectionString);
     }
@@ -530,7 +530,7 @@ public class UnitTests
     [Fact]
     public void RateLimitResult_ConstructsCorrectly()
     {
-        var result = new RateLimitResult(
+        RateLimitResult result = new RateLimitResult(
             IsAllowed: true,
             Limit: 10,
             Remaining: 9,
@@ -545,7 +545,7 @@ public class UnitTests
     [Fact]
     public void RateLimitResult_Denied_ZeroRemaining()
     {
-        var result = new RateLimitResult(
+        RateLimitResult result = new RateLimitResult(
             IsAllowed: false,
             Limit: 10,
             Remaining: 0,
@@ -558,8 +558,8 @@ public class UnitTests
     [Fact]
     public void CachedResponseSnapshot_ConstructsCorrectly()
     {
-        var now = DateTimeOffset.UtcNow;
-        var snapshot = new CachedResponseSnapshot(
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        CachedResponseSnapshot snapshot = new CachedResponseSnapshot(
             StatusCodes.Status200OK,
             "application/json",
             System.Text.Encoding.UTF8.GetBytes("{}"),
@@ -573,9 +573,9 @@ public class UnitTests
     [Fact]
     public void RateLimitResult_Equality()
     {
-        var r1 = new RateLimitResult(true, 10, 5, 1000);
-        var r2 = new RateLimitResult(true, 10, 5, 1000);
-        var r3 = new RateLimitResult(false, 10, 0, 1000);
+        RateLimitResult r1 = new RateLimitResult(true, 10, 5, 1000);
+        RateLimitResult r2 = new RateLimitResult(true, 10, 5, 1000);
+        RateLimitResult r3 = new RateLimitResult(false, 10, 0, 1000);
 
         Assert.Equal(r1, r2);
         Assert.NotEqual(r1, r3);
@@ -584,10 +584,10 @@ public class UnitTests
     [Fact]
     public void CachedResponseSnapshot_Equality()
     {
-        var now = DateTimeOffset.UtcNow;
-        var s1 = new CachedResponseSnapshot(200, "json", new byte[] { 1, 2 }, now);
-        var s2 = new CachedResponseSnapshot(200, "json", new byte[] { 1, 2 }, now);
-        var s3 = new CachedResponseSnapshot(404, "json", new byte[] { 1, 2 }, now);
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        CachedResponseSnapshot s1 = new CachedResponseSnapshot(200, "json", new byte[] { 1, 2 }, now);
+        CachedResponseSnapshot s2 = new CachedResponseSnapshot(200, "json", new byte[] { 1, 2 }, now);
+        CachedResponseSnapshot s3 = new CachedResponseSnapshot(404, "json", new byte[] { 1, 2 }, now);
 
         // Compare individual properties since record equality doesn't compare byte arrays by value
         Assert.Equal(s1.StatusCode, s2.StatusCode);

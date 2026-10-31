@@ -21,8 +21,8 @@ public static class FallbackCacheExtensions
         // Register Redis connection for fallback cache (lazy - only used if enabled)
         services.AddSingleton<IConnectionMultiplexer>(sp =>
         {
-            var redisConfig = configuration.GetSection("FallbackCache:Redis").Get<RedisFallbackCacheOptions>() ?? new RedisFallbackCacheOptions();
-            var config = ConfigurationOptions.Parse(redisConfig.ConnectionString);
+            RedisFallbackCacheOptions redisConfig = configuration.GetSection("FallbackCache:Redis").Get<RedisFallbackCacheOptions>() ?? new RedisFallbackCacheOptions();
+            ConfigurationOptions config = ConfigurationOptions.Parse(redisConfig.ConnectionString);
             config.AbortOnConnectFail = false;
             config.ConnectRetry = 3;
             config.ConnectTimeout = 5000;

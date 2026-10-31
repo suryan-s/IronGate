@@ -12,14 +12,14 @@ public static class ReverseProxyExtensions
     public static IServiceCollection AddIronGateReverseProxy(this IServiceCollection services, IConfiguration config)
     {
         // Build a temporary provider to get the IDP registry
-        var tempProvider = services.BuildServiceProvider();
-        var registry = tempProvider.GetRequiredService<IIdentityProviderRegistry>();
+        ServiceProvider tempProvider = services.BuildServiceProvider();
+        IIdentityProviderRegistry registry = tempProvider.GetRequiredService<IIdentityProviderRegistry>();
 
         string idpName = config["IdentityProvider:Default"] ?? "keycloak";
-        var provider = registry.GetRequiredProvider(idpName);
+        IIdentityProvider provider = registry.GetRequiredProvider(idpName);
 
         // Get downstream security secret
-        var downstreamSecret = config["DownstreamSecurity:SharedSecret"];
+        string? downstreamSecret = config["DownstreamSecurity:SharedSecret"];
 
         services
             .AddReverseProxy()
@@ -69,7 +69,7 @@ public static class ReverseProxyExtensions
 
                     string? userId = provider.GetUserId(user);
                     string? username = provider.GetUsername(user);
-                    var roles = provider.GetRoles(user);
+                    IReadOnlyList<string> roles = provider.GetRoles(user);
 
                     if (!string.IsNullOrEmpty(userId))
                     {

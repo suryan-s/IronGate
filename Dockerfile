@@ -9,6 +9,8 @@ WORKDIR /src
 
 # Copy project files first for layer caching
 COPY src/IronGate/IronGate.csproj ./src/IronGate/
+COPY src/IronGate.AspNetCore/IronGate.AspNetCore.csproj ./src/IronGate.AspNetCore/
+COPY tests/IronGate.Tests/IronGate.Tests.csproj ./tests/IronGate.Tests/
 COPY IronGate.slnx .
 
 # Restore dependencies

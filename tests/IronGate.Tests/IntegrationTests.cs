@@ -90,11 +90,11 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
     [Fact]
     public async Task Healthz_ReturnsHealthy()
     {
-        var response = await _client.GetAsync("/healthz");
+        HttpResponseMessage response = await _client.GetAsync("/healthz");
         
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         
-        var content = await response.Content.ReadFromJsonAsync<JsonElement>(_jsonOptions);
+        JsonElement content = await response.Content.ReadFromJsonAsync<JsonElement>(_jsonOptions);
         Assert.Equal("healthy", content.GetProperty("status").GetString());
         Assert.Equal("IronGate", content.GetProperty("service").GetString());
     }
@@ -102,7 +102,7 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
     [Fact]
     public async Task PublicRoute_WithoutToken_ReturnsOk()
     {
-        var response = await _client.GetAsync("/api/public/echo");
+        HttpResponseMessage response = await _client.GetAsync("/api/public/echo");
         
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
     }
@@ -110,7 +110,7 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
     [Fact]
     public async Task ProtectedRoute_WithoutToken_ReturnsUnauthorized()
     {
-        var response = await _client.GetAsync("/api/protected/echo");
+        HttpResponseMessage response = await _client.GetAsync("/api/protected/echo");
         
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
@@ -118,12 +118,12 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
     [Fact]
     public async Task ProtectedRoute_WithValidToken_ReturnsOkAndInjectsHeaders()
     {
-        var token = await GetAccessTokenAsync();
+        string token = await GetAccessTokenAsync();
         
-        var request = new HttpRequestMessage(HttpMethod.Get, "/api/protected/echo");
+        HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, "/api/protected/echo");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         
-        var response = await _client.SendAsync(request);
+        HttpResponseMessage response = await _client.SendAsync(request);
         
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         
@@ -135,29 +135,29 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
     [Fact]
     public async Task CorrelationId_HeaderPropagatedToDownstream()
     {
-        var token = await GetAccessTokenAsync();
-        var correlationId = "test-correlation-123";
+        string token = await GetAccessTokenAsync();
+        string correlationId = "test-correlation-123";
         
-        var request = new HttpRequestMessage(HttpMethod.Get, "/api/protected/echo");
+        HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, "/api/protected/echo");
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         request.Headers.Add("x-correlation-id", correlationId);
         
-        var response = await _client.SendAsync(request);
+        HttpResponseMessage response = await _client.SendAsync(request);
         
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.True(response.Headers.TryGetValues("x-correlation-id", out var values));
+        Assert.True(response.Headers.TryGetValues("x-correlation-id", out IEnumerable<string>? values));
         Assert.Equal(correlationId, values.FirstOrDefault());
     }
 
     [Fact]
     public async Task MetricsEndpoint_ReturnsPrometheusFormat()
     {
-        var response = await _client.GetAsync("/metrics");
+        HttpResponseMessage response = await _client.GetAsync("/metrics");
         
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("text/plain", response.Content.Headers.ContentType?.MediaType);
         
-        var content = await response.Content.ReadAsStringAsync();
+        string content = await response.Content.ReadAsStringAsync();
         // Just verify we get some Prometheus metrics output
         Assert.Contains("# TYPE", content);
         Assert.Contains("# HELP", content);
@@ -170,23 +170,23 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         // Make 11 requests quickly - the 11th should get 429
         for (int i = 0; i < 10; i++)
         {
-            var response = await _client.GetAsync("/api/public/echo");
+            HttpResponseMessage response = await _client.GetAsync("/api/public/echo");
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
-        var rejectedResponse = await _client.GetAsync("/api/public/echo");
+        HttpResponseMessage rejectedResponse = await _client.GetAsync("/api/public/echo");
         Assert.Equal(HttpStatusCode.TooManyRequests, rejectedResponse.StatusCode);
         
         // Verify Retry-After header
         Assert.True(rejectedResponse.Headers.Contains("Retry-After"));
-        var retryAfter = rejectedResponse.Headers.GetValues("Retry-After").FirstOrDefault();
+        string? retryAfter = rejectedResponse.Headers.GetValues("Retry-After").FirstOrDefault();
         Assert.NotNull(retryAfter);
-        Assert.True(int.TryParse(retryAfter, out var seconds));
+        Assert.True(int.TryParse(retryAfter, out int seconds));
         Assert.True(seconds > 0);
 
         // Verify problem+json response with correlationId
         Assert.Equal("application/problem+json", rejectedResponse.Content.Headers.ContentType?.MediaType);
-        var problem = await rejectedResponse.Content.ReadFromJsonAsync<JsonElement>(_jsonOptions);
+        JsonElement problem = await rejectedResponse.Content.ReadFromJsonAsync<JsonElement>(_jsonOptions);
         Assert.Equal(429, problem.GetProperty("status").GetInt32());
         Assert.Equal("Too Many Requests", problem.GetProperty("title").GetString());
         Assert.True(problem.TryGetProperty("correlationId", out _));
@@ -195,35 +195,35 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
     [Fact]
     public async Task ProtectedRoute_RateLimited_Returns429WithRetryAfter()
     {
-        var token = await GetAccessTokenAsync();
+        string token = await GetAccessTokenAsync();
         
         // appsettings.Development.json: Protected.TokenLimit = 20
         // Make 21 requests quickly - the 21st should get 429
         for (int i = 0; i < 20; i++)
         {
-            var request = new HttpRequestMessage(HttpMethod.Get, "/api/protected/echo");
+            HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, "/api/protected/echo");
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             
-            var response = await _client.SendAsync(request);
+            HttpResponseMessage response = await _client.SendAsync(request);
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         }
 
-        var rejectedRequest = new HttpRequestMessage(HttpMethod.Get, "/api/protected/echo");
+        HttpRequestMessage rejectedRequest = new HttpRequestMessage(HttpMethod.Get, "/api/protected/echo");
         rejectedRequest.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         
-        var rejectedResponse = await _client.SendAsync(rejectedRequest);
+        HttpResponseMessage rejectedResponse = await _client.SendAsync(rejectedRequest);
         Assert.Equal(HttpStatusCode.TooManyRequests, rejectedResponse.StatusCode);
         
         // Verify Retry-After header
         Assert.True(rejectedResponse.Headers.Contains("Retry-After"));
-        var retryAfter = rejectedResponse.Headers.GetValues("Retry-After").FirstOrDefault();
+        string? retryAfter = rejectedResponse.Headers.GetValues("Retry-After").FirstOrDefault();
         Assert.NotNull(retryAfter);
-        Assert.True(int.TryParse(retryAfter, out var seconds));
+        Assert.True(int.TryParse(retryAfter, out int seconds));
         Assert.True(seconds > 0);
 
         // Verify problem+json response with correlationId
         Assert.Equal("application/problem+json", rejectedResponse.Content.Headers.ContentType?.MediaType);
-        var problem = await rejectedResponse.Content.ReadFromJsonAsync<JsonElement>(_jsonOptions);
+        JsonElement problem = await rejectedResponse.Content.ReadFromJsonAsync<JsonElement>(_jsonOptions);
         Assert.Equal(429, problem.GetProperty("status").GetInt32());
         Assert.Equal("Too Many Requests", problem.GetProperty("title").GetString());
         Assert.True(problem.TryGetProperty("correlationId", out _));
@@ -235,16 +235,16 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
     public async Task FallbackCache_HappyPath_Caches200Response()
     {
         // First request should hit the downstream and cache the response
-        var response1 = await _client.GetAsync("/api/public/echo");
+        HttpResponseMessage response1 = await _client.GetAsync("/api/public/echo");
         Assert.Equal(HttpStatusCode.OK, response1.StatusCode);
         
         // Verify response was successful
-        var content1 = await response1.Content.ReadAsStringAsync();
+        string content1 = await response1.Content.ReadAsStringAsync();
         Assert.NotNull(content1);
         
         // Second request should also succeed (from downstream, but we can't easily 
         // verify caching without checking the internal cache store)
-        var response2 = await _client.GetAsync("/api/public/echo");
+        HttpResponseMessage response2 = await _client.GetAsync("/api/public/echo");
         Assert.Equal(HttpStatusCode.OK, response2.StatusCode);
     }
 
@@ -259,7 +259,7 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
         // that the static fallback config is loaded.
         
         // The static fallback for /api/public/echo is configured in appsettings
-        var response = await _client.GetAsync("/api/public/echo");
+        HttpResponseMessage response = await _client.GetAsync("/api/public/echo");
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         
         // Verify the fallback middleware is active (it won't trigger since downstream is healthy)
@@ -267,9 +267,9 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
 
     private async Task<string> GetAccessTokenAsync()
     {
-        var keycloakUrl = "http://localhost:8080/realms/master/protocol/openid-connect/token";
+        string keycloakUrl = "http://localhost:8080/realms/master/protocol/openid-connect/token";
         
-        var formData = new Dictionary<string, string>
+        Dictionary<string, string> formData = new Dictionary<string, string>
         {
             ["username"] = "admin",
             ["password"] = "admin",
@@ -278,11 +278,11 @@ public class IntegrationTests : IClassFixture<WebApplicationFactory<Program>>
             ["client_secret"] = "test-secret"
         };
 
-        using var httpClient = new HttpClient();
-        var response = await httpClient.PostAsync(keycloakUrl, new FormUrlEncodedContent(formData));
+        using HttpClient httpClient = new HttpClient();
+        HttpResponseMessage response = await httpClient.PostAsync(keycloakUrl, new FormUrlEncodedContent(formData));
         response.EnsureSuccessStatusCode();
         
-        var json = await response.Content.ReadFromJsonAsync<JsonElement>(_jsonOptions);
+        JsonElement json = await response.Content.ReadFromJsonAsync<JsonElement>(_jsonOptions);
         return json.GetProperty("access_token").GetString()!;
     }
 }

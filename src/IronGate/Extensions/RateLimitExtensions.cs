@@ -21,12 +21,12 @@ public static class RateLimitExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        var publicConfig = configuration.GetSection("RateLimiting:Public");
-        var protectedConfig = configuration.GetSection("RateLimiting:Protected");
-        var redisConfig = configuration.GetSection("RateLimiting:Redis");
+        IConfigurationSection publicConfig = configuration.GetSection("RateLimiting:Public");
+        IConfigurationSection protectedConfig = configuration.GetSection("RateLimiting:Protected");
+        IConfigurationSection redisConfig = configuration.GetSection("RateLimiting:Redis");
 
         // Pre-create limiter options for reuse
-        var publicOptions = new SlidingWindowRateLimiterOptions
+        SlidingWindowRateLimiterOptions publicOptions = new SlidingWindowRateLimiterOptions
         {
             PermitLimit = publicConfig.GetValue("PermitLimit", 10),
             Window = TimeSpan.FromSeconds(publicConfig.GetValue("WindowSeconds", 60)),
@@ -35,7 +35,7 @@ public static class RateLimitExtensions
             QueueLimit = 0
         };
 
-        var protectedOptions = new TokenBucketRateLimiterOptions
+        TokenBucketRateLimiterOptions protectedOptions = new TokenBucketRateLimiterOptions
         {
             TokenLimit = protectedConfig.GetValue("TokenLimit", 20),
             TokensPerPeriod = protectedConfig.GetValue("TokensPerPeriod", 5),
@@ -45,7 +45,7 @@ public static class RateLimitExtensions
             QueueLimit = 0
         };
 
-        var unlimitedOptions = new FixedWindowRateLimiterOptions
+        FixedWindowRateLimiterOptions unlimitedOptions = new FixedWindowRateLimiterOptions
         {
             PermitLimit = int.MaxValue,
             Window = TimeSpan.FromSeconds(1),
@@ -63,12 +63,12 @@ public static class RateLimitExtensions
         // Register Redis connection (lazy - only connects when first used)
         services.AddSingleton<IConnectionMultiplexer>(sp =>
         {
-            var options = sp.GetRequiredService<IOptions<RedisRateLimitOptions>>().Value;
+            RedisRateLimitOptions options = sp.GetRequiredService<IOptions<RedisRateLimitOptions>>().Value;
             if (!options.Enabled)
             {
                 return null!; // Will be handled by factory
             }
-            var config = ConfigurationOptions.Parse(options.ConnectionString);
+            ConfigurationOptions config = ConfigurationOptions.Parse(options.ConnectionString);
             config.AbortOnConnectFail = false;
             config.ConnectRetry = 3;
             config.ConnectTimeout = 5000;
@@ -89,13 +89,13 @@ public static class RateLimitExtensions
 
             options.OnRejected = async (context, cancellationToken) =>
             {
-                if (context.Lease.TryGetMetadata("RetryAfter", out var retryAfterObj) && retryAfterObj is TimeSpan retryAfter)
+                if (context.Lease.TryGetMetadata("RetryAfter", out object? retryAfterObj) && retryAfterObj is TimeSpan retryAfter)
                 {
                     context.HttpContext.Response.Headers.RetryAfter =
                         ((int)retryAfter.TotalSeconds).ToString(NumberFormatInfo.InvariantInfo);
                 }
 
-                var correlationId = context.HttpContext.Response.Headers["x-correlation-id"].ToString();
+                string correlationId = context.HttpContext.Response.Headers["x-correlation-id"].ToString();
 
                 context.HttpContext.Response.ContentType = "application/problem+json";
                 await context.HttpContext.Response.WriteAsJsonAsync(new
@@ -155,10 +155,10 @@ public sealed class InMemoryRateLimitStore : IRateLimitStore
             limiter = _limiterCache.GetOrAdd(partitionKey, _ => new FixedWindowRateLimiter(_unlimitedOptions));
         }
 
-        var lease = await limiter.AcquireAsync(permitCount, cancellationToken);
+        RateLimitLease lease = await limiter.AcquireAsync(permitCount, cancellationToken);
 
         // Extract quota info from lease metadata
-        var isAllowed = lease.IsAcquired;
+        bool isAllowed = lease.IsAcquired;
         int limit, remaining;
         long resetEpoch;
 
@@ -253,7 +253,7 @@ public sealed class RateLimitMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        var path = context.Request.Path.Value ?? "";
+        string path = context.Request.Path.Value ?? "";
 
         // Skip rate limiting for healthz and metrics
         if (path.StartsWith("/health", StringComparison.OrdinalIgnoreCase) ||
@@ -274,10 +274,10 @@ public sealed class RateLimitMiddleware
         }
         else if (path.StartsWith("/api/protected/", StringComparison.OrdinalIgnoreCase))
         {
-            var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier)
-                         ?? context.User.FindFirstValue("sub")
-                         ?? context.Connection.RemoteIpAddress?.ToString()
-                         ?? "anonymous";
+            string userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier)
+                            ?? context.User.FindFirstValue("sub")
+                            ?? context.Connection.RemoteIpAddress?.ToString()
+                            ?? "anonymous";
             partitionKey = $"protected:user:{userId}";
             fallbackRetryAfter = TimeSpan.FromSeconds(
                 _protectedOptions.ReplenishmentPeriod.TotalSeconds / _protectedOptions.TokensPerPeriod);
@@ -292,7 +292,7 @@ public sealed class RateLimitMiddleware
             path, partitionKey, _store.GetType().Name);
 
         // Try to acquire lease from distributed store
-        var result = await _store.AcquireAsync(partitionKey, 1, context.RequestAborted);
+        RateLimitResult result = await _store.AcquireAsync(partitionKey, 1, context.RequestAborted);
 
         _logger.LogDebug("Rate limit result: partitionKey={PartitionKey}, acquired={Acquired}, limit={Limit}, remaining={Remaining}",
             partitionKey, result.IsAllowed, result.Limit, result.Remaining);
@@ -310,7 +310,7 @@ public sealed class RateLimitMiddleware
 
             // Use limiter's metadata if available, otherwise fallback
             TimeSpan retryAfter = fallbackRetryAfter;
-            if (result.Lease?.TryGetMetadata("RetryAfter", out var retryAfterObj) == true && retryAfterObj is TimeSpan ra)
+            if (result.Lease?.TryGetMetadata("RetryAfter", out object? retryAfterObj) == true && retryAfterObj is TimeSpan ra)
             {
                 retryAfter = ra;
             }
@@ -322,7 +322,7 @@ public sealed class RateLimitMiddleware
             context.Response.Headers.RetryAfter =
                 ((int)retryAfter.TotalSeconds).ToString(NumberFormatInfo.InvariantInfo);
 
-            var correlationId = context.Response.Headers["x-correlation-id"].ToString();
+            string correlationId = context.Response.Headers["x-correlation-id"].ToString();
 
             var problemDetails = new
             {
@@ -334,7 +334,7 @@ public sealed class RateLimitMiddleware
             };
 
             // Serialize manually to avoid WriteAsJsonAsync overwriting content type
-            var json = System.Text.Json.JsonSerializer.Serialize(problemDetails);
+            string json = System.Text.Json.JsonSerializer.Serialize(problemDetails);
             await context.Response.WriteAsync(json, context.RequestAborted);
             return;
         }

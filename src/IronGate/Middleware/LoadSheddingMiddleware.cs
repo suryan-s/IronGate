@@ -39,15 +39,15 @@ public sealed class LoadSheddingMiddleware
         }
 
         // Check for priority bypass
-        var isPriority = context.Request.Headers["X-IronGate-Priority"] == "high" ||
-                        (context.User.Identity?.IsAuthenticated == true &&
-                         context.User.IsInRole("admin"));
+        bool isPriority = context.Request.Headers["X-IronGate-Priority"] == "high" ||
+                          (context.User.Identity?.IsAuthenticated == true &&
+                           context.User.IsInRole("admin"));
 
-        var maxConcurrent = isPriority
+        int maxConcurrent = isPriority
             ? (int)(_options.MaxConcurrentRequests * 1.1) // 110% for priority
             : _options.MaxConcurrentRequests;
 
-        var currentInFlight = Interlocked.Increment(ref _currentInFlight);
+        long currentInFlight = Interlocked.Increment(ref _currentInFlight);
         _inFlightCounter.Add(1);
 
         try
@@ -82,7 +82,7 @@ public sealed class LoadSheddingMiddleware
         }
         finally
         {
-            var remaining = Interlocked.Decrement(ref _currentInFlight);
+            long remaining = Interlocked.Decrement(ref _currentInFlight);
             _inFlightCounter.Add(-1);
         }
     }

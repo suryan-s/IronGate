@@ -42,7 +42,7 @@ public sealed class ResilienceForwarderHttpClientFactory : ForwarderHttpClientFa
         ResilienceOptions options,
         ILogger logger)
     {
-        var builder = new ResiliencePipelineBuilder<HttpResponseMessage>();
+        ResiliencePipelineBuilder<HttpResponseMessage> builder = new ResiliencePipelineBuilder<HttpResponseMessage>();
 
         // 1. Outer Total Timeout (caps the entire operation including hedged attempts)
         builder.AddTimeout(new TimeoutStrategyOptions
@@ -125,16 +125,16 @@ internal sealed class ResilienceHttpMessageHandler : DelegatingHandler
             return await base.SendAsync(request, cancellationToken);
         }
 
-        var attempts = 0;
+        int attempts = 0;
 
         try
         {
-            var response = await _pipeline.ExecuteAsync(async ct =>
+            HttpResponseMessage response = await _pipeline.ExecuteAsync(async ct =>
             {
-                var currentAttempt = Interlocked.Increment(ref attempts);
+                int currentAttempt = Interlocked.Increment(ref attempts);
 
                 // Clone the request for hedged attempts so concurrent streams don't conflict
-                using var clonedRequest = currentAttempt == 1
+                using HttpRequestMessage clonedRequest = currentAttempt == 1
                     ? request
                     : CloneIdempotentRequest(request);
 
@@ -153,7 +153,7 @@ internal sealed class ResilienceHttpMessageHandler : DelegatingHandler
         {
             // Return clean 503 response with Circuit-State header so YARP forwards 503
             // (and Milestone 5 Fallback Middleware can intercept it!)
-            var fallbackResponse = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
+            HttpResponseMessage fallbackResponse = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
             {
                 Content = new StringContent(
                     """{"type":"https://httpstatuses.com/503","title":"Service Unavailable","status":503,"detail":"Downstream circuit breaker is open. Failing fast."}""",
@@ -173,13 +173,13 @@ internal sealed class ResilienceHttpMessageHandler : DelegatingHandler
 
     private static HttpRequestMessage CloneIdempotentRequest(HttpRequestMessage original)
     {
-        var clone = new HttpRequestMessage(original.Method, original.RequestUri)
+        HttpRequestMessage clone = new HttpRequestMessage(original.Method, original.RequestUri)
         {
             Version = original.Version,
             VersionPolicy = original.VersionPolicy
         };
 
-        foreach (var header in original.Headers)
+        foreach (KeyValuePair<string, IEnumerable<string>> header in original.Headers)
         {
             clone.Headers.TryAddWithoutValidation(header.Key, header.Value);
         }

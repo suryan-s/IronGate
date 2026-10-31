@@ -25,7 +25,7 @@ public sealed class FallbackCacheMiddleware(
         }
 
         // Resolve the correct store at runtime based on current config
-        var fallbackCacheOptions = context.RequestServices
+        FallbackCacheOptions fallbackCacheOptions = context.RequestServices
             .GetRequiredService<IOptionsMonitor<FallbackCacheOptions>>().CurrentValue;
         
         IFallbackCacheStore cacheStore;
@@ -38,12 +38,12 @@ public sealed class FallbackCacheMiddleware(
             cacheStore = context.RequestServices.GetRequiredService<InMemoryFallbackCacheStore>();
         }
 
-        var path = context.Request.Path.Value ?? "/";
-        var query = context.Request.QueryString.Value ?? string.Empty;
-        var cacheKey = $"irongate:fallback:{path}{query}";
+        string path = context.Request.Path.Value ?? "/";
+        string query = context.Request.QueryString.Value ?? string.Empty;
+        string cacheKey = $"irongate:fallback:{path}{query}";
 
-        var originalBodyStream = context.Response.Body;
-        using var bufferStream = new MemoryStream();
+        Stream originalBodyStream = context.Response.Body;
+        using MemoryStream bufferStream = new MemoryStream();
         context.Response.Body = bufferStream;
 
         try
@@ -53,8 +53,8 @@ public sealed class FallbackCacheMiddleware(
             // 1. Happy Path: Cache 200 OK responses for future outages
             if (context.Response.StatusCode == StatusCodes.Status200OK)
             {
-                var bodyBytes = bufferStream.ToArray();
-                var contentType = context.Response.ContentType ?? "application/json";
+                byte[] bodyBytes = bufferStream.ToArray();
+                string contentType = context.Response.ContentType ?? "application/json";
 
                 await cacheStore.SetAsync(
                     cacheKey,
@@ -71,7 +71,7 @@ public sealed class FallbackCacheMiddleware(
             if (context.Response.StatusCode >= 500)
             {
                 // Tier 1: Check Last-Known-Good Dynamic Cache
-                var cached = await cacheStore.GetAsync(cacheKey, context.RequestAborted);
+                CachedResponseSnapshot? cached = await cacheStore.GetAsync(cacheKey, context.RequestAborted);
                 if (cached is not null)
                 {
                     _logger.LogWarning(
@@ -88,13 +88,13 @@ public sealed class FallbackCacheMiddleware(
                 }
 
                 // Tier 2: Check Static Fallback Config
-                if (_options.StaticFallbacks.TryGetValue(path, out var staticPayload))
+                if (_options.StaticFallbacks.TryGetValue(path, out string? staticPayload))
                 {
                     _logger.LogWarning(
                         "Downstream returned {StatusCode} for {Path}. Serving configured static fallback.",
                         context.Response.StatusCode, path);
 
-                    var staticBytes = Encoding.UTF8.GetBytes(staticPayload);
+                    byte[] staticBytes = Encoding.UTF8.GetBytes(staticPayload);
                     await WriteFallbackResponseAsync(
                         context,
                         originalBodyStream,

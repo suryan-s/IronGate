@@ -47,7 +47,7 @@ public sealed class KeycloakIdentityProvider : IdentityProviderBase
 
     public override IReadOnlyList<string> GetRoles(ClaimsPrincipal user)
     {
-        var roles = new List<string>();
+        List<string> roles = new List<string>();
 
         // Keycloak stores roles in realm_access.roles (realm-level) and resource_access.{client}.roles (client-level)
         roles.AddRange(ParseRolesFromRealmAccess(user));
@@ -68,12 +68,12 @@ public sealed class KeycloakIdentityProvider : IdentityProviderBase
         if (identity == null) return;
 
         // Keycloak: Map realm_access/resource_access to standard role claims for easier access
-        foreach (var role in ParseRolesFromRealmAccessClaims(identity))
+        foreach (string role in ParseRolesFromRealmAccessClaims(identity))
         {
             identity.AddClaim(new Claim(ClaimTypes.Role, role));
         }
 
-        foreach (var role in ParseRolesFromResourceAccessClaims(identity))
+        foreach (string role in ParseRolesFromResourceAccessClaims(identity))
         {
             identity.AddClaim(new Claim(ClaimTypes.Role, role));
         }
@@ -81,12 +81,12 @@ public sealed class KeycloakIdentityProvider : IdentityProviderBase
 
     private static List<string> ParseRolesFromJsonElement(JsonElement element)
     {
-        var roles = new List<string>();
+        List<string> roles = new List<string>();
         if (element.ValueKind == JsonValueKind.Array)
         {
-            foreach (var role in element.EnumerateArray())
+            foreach (JsonElement role in element.EnumerateArray())
             {
-                var roleValue = role.GetString();
+                string? roleValue = role.GetString();
                 if (!string.IsNullOrEmpty(roleValue))
                     roles.Add(roleValue);
             }
@@ -96,14 +96,14 @@ public sealed class KeycloakIdentityProvider : IdentityProviderBase
 
     private List<string> ParseRolesFromRealmAccess(ClaimsPrincipal user)
     {
-        var roles = new List<string>();
-        var realmAccess = user.FindFirst("realm_access")?.Value;
+        List<string> roles = new List<string>();
+        string? realmAccess = user.FindFirst("realm_access")?.Value;
         if (string.IsNullOrEmpty(realmAccess)) return roles;
 
         try
         {
-            using var doc = JsonDocument.Parse(realmAccess);
-            if (doc.RootElement.TryGetProperty("roles", out var rolesElement))
+            using JsonDocument doc = JsonDocument.Parse(realmAccess);
+            if (doc.RootElement.TryGetProperty("roles", out JsonElement rolesElement))
             {
                 roles.AddRange(ParseRolesFromJsonElement(rolesElement));
             }
@@ -114,16 +114,16 @@ public sealed class KeycloakIdentityProvider : IdentityProviderBase
 
     private List<string> ParseRolesFromResourceAccess(ClaimsPrincipal user)
     {
-        var roles = new List<string>();
-        var resourceAccess = user.FindFirst("resource_access")?.Value;
+        List<string> roles = new List<string>();
+        string? resourceAccess = user.FindFirst("resource_access")?.Value;
         if (string.IsNullOrEmpty(resourceAccess)) return roles;
 
         try
         {
-            using var doc = JsonDocument.Parse(resourceAccess);
-            foreach (var client in doc.RootElement.EnumerateObject())
+            using JsonDocument doc = JsonDocument.Parse(resourceAccess);
+            foreach (JsonProperty client in doc.RootElement.EnumerateObject())
             {
-                if (client.Value.TryGetProperty("roles", out var clientRoles))
+                if (client.Value.TryGetProperty("roles", out JsonElement clientRoles))
                 {
                     roles.AddRange(ParseRolesFromJsonElement(clientRoles));
                 }
@@ -135,14 +135,14 @@ public sealed class KeycloakIdentityProvider : IdentityProviderBase
 
     private List<string> ParseRolesFromRealmAccessClaims(ClaimsIdentity identity)
     {
-        var roles = new List<string>();
-        var realmAccess = identity.FindFirst("realm_access")?.Value;
+        List<string> roles = new List<string>();
+        string? realmAccess = identity.FindFirst("realm_access")?.Value;
         if (string.IsNullOrEmpty(realmAccess)) return roles;
 
         try
         {
-            using var doc = JsonDocument.Parse(realmAccess);
-            if (doc.RootElement.TryGetProperty("roles", out var rolesElement))
+            using JsonDocument doc = JsonDocument.Parse(realmAccess);
+            if (doc.RootElement.TryGetProperty("roles", out JsonElement rolesElement))
             {
                 roles.AddRange(ParseRolesFromJsonElement(rolesElement));
             }
@@ -153,16 +153,16 @@ public sealed class KeycloakIdentityProvider : IdentityProviderBase
 
     private List<string> ParseRolesFromResourceAccessClaims(ClaimsIdentity identity)
     {
-        var roles = new List<string>();
-        var resourceAccess = identity.FindFirst("resource_access")?.Value;
+        List<string> roles = new List<string>();
+        string? resourceAccess = identity.FindFirst("resource_access")?.Value;
         if (string.IsNullOrEmpty(resourceAccess)) return roles;
 
         try
         {
-            using var doc = JsonDocument.Parse(resourceAccess);
-            foreach (var client in doc.RootElement.EnumerateObject())
+            using JsonDocument doc = JsonDocument.Parse(resourceAccess);
+            foreach (JsonProperty client in doc.RootElement.EnumerateObject())
             {
-                if (client.Value.TryGetProperty("roles", out var clientRoles))
+                if (client.Value.TryGetProperty("roles", out JsonElement clientRoles))
                 {
                     roles.AddRange(ParseRolesFromJsonElement(clientRoles));
                 }

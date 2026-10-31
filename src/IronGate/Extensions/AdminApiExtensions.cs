@@ -42,11 +42,11 @@ internal sealed class AdminApiStartupValidator(
 {
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        var apiKey = options.Value.ApiKey;
+        string apiKey = options.Value.ApiKey;
         
         if (env.IsProduction() && string.IsNullOrEmpty(apiKey))
         {
-            var msg = "Admin API key is not configured but required in production. Set Admin:ApiKey or IRONGATE_ADMIN_API_KEY environment variable.";
+            string msg = "Admin API key is not configured but required in production. Set Admin:ApiKey or IRONGATE_ADMIN_API_KEY environment variable.";
             logger.LogCritical(msg);
             throw new InvalidOperationException(msg);
         }
@@ -99,7 +99,7 @@ public sealed class AdminApiMiddleware
         }
 
         // Check admin API key
-        var providedKey = context.Request.Headers["X-IronGate-Admin-Key"].FirstOrDefault();
+        string? providedKey = context.Request.Headers["X-IronGate-Admin-Key"].FirstOrDefault();
         if (string.IsNullOrEmpty(_options.ApiKey) || providedKey != _options.ApiKey)
         {
             _logger.LogWarning("Admin API access denied: invalid or missing API key");
@@ -116,7 +116,7 @@ public sealed class AdminApiMiddleware
         }
 
         // Handle admin endpoints
-        var path = context.Request.Path.Value ?? "";
+        string path = context.Request.Path.Value ?? "";
         
         if (path.Equals("/admin/status", StringComparison.OrdinalIgnoreCase) && 
             HttpMethods.IsGet(context.Request.Method))
@@ -146,29 +146,29 @@ public sealed class AdminApiMiddleware
 
     private async Task HandleStatusAsync(HttpContext context)
     {
-        var services = context.RequestServices;
-        var config = services.GetRequiredService<IConfiguration>();
+        IServiceProvider services = context.RequestServices;
+        IConfiguration config = services.GetRequiredService<IConfiguration>();
         
         // Get rate limit store for stats
-        var rateLimitStore = services.GetService<IRateLimitStore>();
+        IRateLimitStore? rateLimitStore = services.GetService<IRateLimitStore>();
         
         // Get fallback cache store for stats
-        var fallbackCacheStore = services.GetService<IFallbackCacheStore>();
+        IFallbackCacheStore? fallbackCacheStore = services.GetService<IFallbackCacheStore>();
 
         // Read feature flags from config dynamically
-        var rateLimitingRedisEnabled = config.GetValue("RateLimiting:Redis:Enabled", false);
-        var hedgingEnabled = config.GetValue("Resilience:Hedging:Enabled", false);
-        var hedgingDelayMs = config.GetValue("Resilience:Hedging:DelayMs", 50);
-        var hedgingMaxAttempts = config.GetValue("Resilience:Hedging:MaxHedgedAttempts", 2);
-        var circuitBreakerEnabled = config.GetValue("Resilience:CircuitBreaker:Enabled", false);
-        var circuitBreakerFailureRatio = config.GetValue("Resilience:CircuitBreaker:FailureRatio", 0.5);
-        var circuitBreakerBreakDuration = config.GetValue("Resilience:CircuitBreaker:BreakDurationSeconds", 15);
-        var fallbackCacheEnabled = config.GetValue("FallbackCache:Enabled", false);
-        var fallbackCacheTtl = config.GetValue("FallbackCache:TtlSeconds", 300);
-        var fallbackCacheUseRedis = config.GetValue("FallbackCache:UseRedis", false);
-        var loadSheddingEnabled = config.GetValue("LoadShedding:Enabled", false);
-        var loadSheddingMaxConcurrent = config.GetValue("LoadShedding:MaxConcurrentRequests", 500);
-        var zeroTrustEnabled = !string.IsNullOrEmpty(config["DownstreamSecurity:SharedSecret"]);
+        bool rateLimitingRedisEnabled = config.GetValue("RateLimiting:Redis:Enabled", false);
+        bool hedgingEnabled = config.GetValue("Resilience:Hedging:Enabled", false);
+        int hedgingDelayMs = config.GetValue("Resilience:Hedging:DelayMs", 50);
+        int hedgingMaxAttempts = config.GetValue("Resilience:Hedging:MaxHedgedAttempts", 2);
+        bool circuitBreakerEnabled = config.GetValue("Resilience:CircuitBreaker:Enabled", false);
+        double circuitBreakerFailureRatio = config.GetValue("Resilience:CircuitBreaker:FailureRatio", 0.5);
+        int circuitBreakerBreakDuration = config.GetValue("Resilience:CircuitBreaker:BreakDurationSeconds", 15);
+        bool fallbackCacheEnabled = config.GetValue("FallbackCache:Enabled", false);
+        int fallbackCacheTtl = config.GetValue("FallbackCache:TtlSeconds", 300);
+        bool fallbackCacheUseRedis = config.GetValue("FallbackCache:UseRedis", false);
+        bool loadSheddingEnabled = config.GetValue("LoadShedding:Enabled", false);
+        int loadSheddingMaxConcurrent = config.GetValue("LoadShedding:MaxConcurrentRequests", 500);
+        bool zeroTrustEnabled = !string.IsNullOrEmpty(config["DownstreamSecurity:SharedSecret"]);
 
         var response = new
         {
@@ -202,7 +202,7 @@ public sealed class AdminApiMiddleware
 
     private async Task HandleClearCacheAsync(HttpContext context)
     {
-        var fallbackCacheStore = context.RequestServices.GetService<IFallbackCacheStore>();
+        IFallbackCacheStore? fallbackCacheStore = context.RequestServices.GetService<IFallbackCacheStore>();
         
         if (fallbackCacheStore == null)
         {
@@ -217,11 +217,11 @@ public sealed class AdminApiMiddleware
             return;
         }
 
-        var path = context.Request.Query["path"].FirstOrDefault();
+        string? path = context.Request.Query["path"].FirstOrDefault();
         
         if (!string.IsNullOrEmpty(path))
         {
-            var cacheKey = $"irongate:fallback:{path}";
+            string cacheKey = $"irongate:fallback:{path}";
             await fallbackCacheStore.RemoveAsync(cacheKey, context.RequestAborted);
             await context.Response.WriteAsJsonAsync(new { message = $"Cache cleared for {path}", cacheKey });
         }
@@ -240,7 +240,7 @@ public sealed class AdminApiMiddleware
 
     private async Task HandleResetRateLimitAsync(HttpContext context)
     {
-        var rateLimitStore = context.RequestServices.GetService<IRateLimitStore>();
+        IRateLimitStore? rateLimitStore = context.RequestServices.GetService<IRateLimitStore>();
         
         if (rateLimitStore == null)
         {
@@ -255,8 +255,8 @@ public sealed class AdminApiMiddleware
             return;
         }
 
-        var path = context.Request.Path.Value ?? "";
-        var key = path.TrimStart('/').Replace("/admin/ratelimit/", "");
+        string path = context.Request.Path.Value ?? "";
+        string key = path.TrimStart('/').Replace("/admin/ratelimit/", "");
         
         if (string.IsNullOrEmpty(key))
         {
