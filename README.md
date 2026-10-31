@@ -76,38 +76,47 @@ flowchart TD
 
 ### Pipeline Order (Exact)
 
+```mermaid
+flowchart TD
+    A[Client Request] --> B[1. CorrelationIdMiddleware]
+    B --> C[2. LoadSheddingMiddleware]
+    C --> D[3. JWT Authentication (IDP Adapter)]
+    D --> E[4. Authorization]
+    E --> F[5. Partitioned Rate Limiter]
+    F --> G[6. Two-Tier Fallback Cache]
+    G --> H[7. YARP Reverse Proxy]
+    H --> I[8. Polly v8 Resilience Pipeline]
+    I --> J[Downstream Service]
+
+    subgraph RateLimiter[5. Partitioned Rate Limiter]
+        F1[/api/public/*] --> F2[Sliding Window by Client IP]
+        F3[/api/protected/*] --> F4[Token Bucket by JWT 'sub']
+    end
+
+    subgraph FallbackCache[6. Two-Tier Fallback Cache]
+        G1[L1: In-Memory 30s TTL]
+        G2[L2: Redis full TTL]
+    end
+
+    subgraph Resilience[8. Polly v8 Resilience Pipeline]
+        I1[Speculative Hedging]
+        I2[Circuit Breaker]
+        I3[Total Timeout 10s]
+    end
 ```
-Client Request
-    │
-    ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ 1. CorrelationIdMiddleware  ──► x-correlation-id header       │
-├─────────────────────────────────────────────────────────────────┤
-│ 2. LoadSheddingMiddleware ──► 503 if overloaded (priority bypass)│
-├─────────────────────────────────────────────────────────────────┤
-│ 3. JWT Authentication (IDP Adapter) ──► Keycloak / Auth0 / Entra│
-├─────────────────────────────────────────────────────────────────┤
-│ 4. Authorization (jwt-required / Anonymous)                    │
-├─────────────────────────────────────────────────────────────────┤
-│ 5. Partitioned Rate Limiter                                     │
-│    ├─ /api/public/*  ──► Sliding Window by Client IP           │
-│    └─ /api/protected/* ──► Token Bucket by JWT 'sub'           │
-├─────────────────────────────────────────────────────────────────┤
-│ 6. Two-Tier Fallback Cache                                      │
-│    ├─ L1: In-Memory (30s TTL)                                   │
-│    └─ L2: Redis (full TTL)                                     │
-├─────────────────────────────────────────────────────────────────┤
-│ 7. YARP Reverse Proxy (PowerOfTwoChoices)                      │
-├─────────────────────────────────────────────────────────────────┤
-│ 8. Polly v8 Resilience Pipeline                                 │
-│    ├─ Speculative Hedging (idempotent only, 50ms delay)        │
-│    ├─ Circuit Breaker (50% failure ratio, 15s break)           │
-│    └─ Total Timeout (10s)                                      │
-└─────────────────────────────────────────────────────────────────┘
-    │
-    ▼
-Downstream Service (with IronGate.AspNetCore SDK)
-```
+
+**Linear View:**
+
+| Order | Middleware / Component | Key Behavior |
+|-------|------------------------|--------------|
+| 1 | `CorrelationIdMiddleware` | Adds/propagates `x-correlation-id` header |
+| 2 | `LoadSheddingMiddleware` | Returns 503 if >500 concurrent (110% for priority) |
+| 3 | JWT Authentication | Validates JWT via Keycloak/Auth0/Entra IDP adapter |
+| 4 | Authorization | Enforces `jwt-required` / `Anonymous` policies |
+| 5 | `RateLimitMiddleware` | Sliding window (public IP) / Token bucket (JWT sub) |
+| 6 | `FallbackCacheMiddleware` | L1 memory (30s) + L2 Redis (full TTL) + static config |
+| 7 | YARP Reverse Proxy | `PowerOfTwoChoices` load balancing |
+| 8 | Polly v8 Pipeline | Hedging (idempotent) → Circuit Breaker → Total Timeout |
 
 ---
 
