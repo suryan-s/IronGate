@@ -1,17 +1,47 @@
 #!/bin/bash
 # Setup dedicated Keycloak realm + client for IronGate
 # Prereqs: Keycloak running on http://localhost:8080 with admin/admin
+# Environment variables:
+#   KEYCLOAK_URL (default: http://localhost:8080)
+#   KEYCLOAK_ADMIN_USER (default: admin)
+#   KEYCLOAK_ADMIN_PASSWORD (required)
+#   IRONGATE_REALM (default: irongate)
+#   IRONGATE_CLIENT_ID (default: irongate-gateway)
+#   IRONGATE_CLIENT_SECRET (required - generate with: openssl rand -base64 32)
+#   IRONGATE_TEST_USER (default: irongate-user)
+#   IRONGATE_TEST_PASSWORD (required - generate with: openssl rand -base64 16)
+#   IRONGATE_REDIRECT_URI (default: http://localhost:5023/*)
+#   IRONGATE_WEB_ORIGINS (default: http://localhost:5023)
 
 set -euo pipefail
 
-KEYCLOAK_URL="http://localhost:8080"
-ADMIN_USER="admin"
-ADMIN_PASS="admin"
-REALM="irongate"
-CLIENT_ID="irongate-gateway"
-CLIENT_SECRET="irongate-secret-change-me"
-TEST_USER="irongate-user"
-TEST_PASS="password123"
+KEYCLOAK_URL="${KEYCLOAK_URL:-http://localhost:8080}"
+ADMIN_USER="${KEYCLOAK_ADMIN_USER:-admin}"
+ADMIN_PASS="${KEYCLOAK_ADMIN_PASSWORD:-}"
+REALM="${IRONGATE_REALM:-irongate}"
+CLIENT_ID="${IRONGATE_CLIENT_ID:-irongate-gateway}"
+CLIENT_SECRET="${IRONGATE_CLIENT_SECRET:-}"
+TEST_USER="${IRONGATE_TEST_USER:-irongate-user}"
+TEST_PASS="${IRONGATE_TEST_PASSWORD:-}"
+REDIRECT_URI="${IRONGATE_REDIRECT_URI:-http://localhost:5023/*}"
+WEB_ORIGINS="${IRONGATE_WEB_ORIGINS:-http://localhost:5023}"
+
+if [ -z "$ADMIN_PASS" ]; then
+  echo "ERROR: KEYCLOAK_ADMIN_PASSWORD environment variable is required"
+  exit 1
+fi
+
+if [ -z "$CLIENT_SECRET" ]; then
+  echo "ERROR: IRONGATE_CLIENT_SECRET environment variable is required"
+  echo "Generate with: openssl rand -base64 32"
+  exit 1
+fi
+
+if [ -z "$TEST_PASS" ]; then
+  echo "ERROR: IRONGATE_TEST_PASSWORD environment variable is required"
+  echo "Generate with: openssl rand -base64 16"
+  exit 1
+fi
 
 echo "==> Getting admin access token..."
 ADMIN_TOKEN=$(curl -s -X POST "${KEYCLOAK_URL}/realms/master/protocol/openid-connect/token" \
@@ -52,8 +82,8 @@ CLIENT_JSON=$(cat <<EOF
   "serviceAccountsEnabled": false,
   "authorizationServicesEnabled": false,
   "defaultClientScopes": ["profile", "email"],
-  "redirectUris": ["http://localhost:5023/*"],
-  "webOrigins": ["*"],
+  "redirectUris": ["${REDIRECT_URI}"],
+  "webOrigins": ["${WEB_ORIGINS}"],
   "attributes": {
     "token.response.type.bearer": "introspect",
     "use.refresh.tokens": "false"

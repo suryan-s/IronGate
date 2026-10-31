@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Options;
 using System.Diagnostics;
 
@@ -19,6 +20,12 @@ public static class AdminApiExtensions
         services.Configure<AdminApiOptions>(
             configuration.GetSection(AdminApiOptions.SectionName));
 
+        // Add startup validation for production
+        services.AddSingleton<IHostedService>(sp => new AdminApiStartupValidator(
+            sp.GetRequiredService<IOptions<AdminApiOptions>>(),
+            sp.GetRequiredService<IHostEnvironment>(),
+            sp.GetRequiredService<ILogger<AdminApiStartupValidator>>()));
+
         return services;
     }
 
@@ -28,10 +35,41 @@ public static class AdminApiExtensions
     }
 }
 
+internal sealed class AdminApiStartupValidator(
+    IOptions<AdminApiOptions> options,
+    IHostEnvironment env,
+    ILogger<AdminApiStartupValidator> logger) : IHostedService
+{
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        var apiKey = options.Value.ApiKey;
+        
+        if (env.IsProduction() && string.IsNullOrEmpty(apiKey))
+        {
+            var msg = "Admin API key is not configured but required in production. Set Admin:ApiKey or IRONGATE_ADMIN_API_KEY environment variable.";
+            logger.LogCritical(msg);
+            throw new InvalidOperationException(msg);
+        }
+        
+        if (!env.IsProduction() && string.IsNullOrEmpty(apiKey))
+        {
+            logger.LogWarning("Admin API key not configured. Admin endpoints will be accessible without authentication. Set Admin:ApiKey for production.");
+        }
+        
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+}
+
 public sealed class AdminApiOptions
 {
     public const string SectionName = "Admin";
 
+    /// <summary>
+    /// Admin API key. Must be configured in production.
+    /// Generate with: openssl rand -base64 32
+    /// </summary>
     public string ApiKey { get; set; } = string.Empty;
 }
 
