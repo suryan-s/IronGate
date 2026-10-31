@@ -13,8 +13,12 @@ This directory contains [k6](https://k6.io/) load testing scripts for benchmarki
 ### 1. Start IronGate Stack
 
 ```bash
-# From repo root
+# From repo root - uses .env for all secrets
 docker compose up -d
+
+# Or for local development (IronGate on host, deps in Docker):
+docker compose up -d redis keycloak echo
+./run-local.sh
 ```
 
 Wait for all services to be healthy (Keycloak, Redis, Echo, OTEL stack).
@@ -22,26 +26,31 @@ Wait for all services to be healthy (Keycloak, Redis, Echo, OTEL stack).
 ### 2. Get Keycloak Token
 
 ```bash
-# Using admin-cli (if available) or irongate-test client
-TOKEN=$(curl -s -X POST "http://localhost:8080/realms/master/protocol/openid-connect/token" \
+# Source .env for generated credentials
+source ../.env
+
+# Using the irongate-test client in the irongate realm
+TOKEN=$(curl -s -X POST "$KEYCLOAK_URL/realms/irongate/protocol/openid-connect/token" \
   -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=admin" \
-  -d "password=admin" \
+  -d "username=$IRONGATE_TEST_USER" \
+  -d "password=$IRONGATE_TEST_PASSWORD" \
   -d "grant_type=password" \
-  -d "client_id=irongate-test" \
-  -d "client_secret=test-secret" | jq -r '.access_token')
+  -d "client_id=$IRONGATE_CLIENT_ID" \
+  -d "client_secret=$IRONGATE_CLIENT_SECRET" | jq -r '.access_token')
 
 export KEYCLOAK_TOKEN=$TOKEN
+export IRONGATE_URL=http://localhost:8080  # or http://irongate:8080 for Docker
 ```
 
 ### 3. Run Throughput & Rate Limit Test
 
 ```bash
+# From benchmarks/ directory
 docker run -i --rm \
-  --network=irongate-network \
-  -e IRONGATE_URL=http://irongate:8080 \
+  --network=host \
+  -e IRONGATE_URL=$IRONGATE_URL \
   -e KEYCLOAK_TOKEN=$KEYCLOAK_TOKEN \
-  grafana/k6 run - < benchmarks/k6-throughput-and-ratelimit.js
+  grafana/k6 run - < k6-throughput-and-ratelimit.js
 ```
 
 **Expected Results:**
@@ -53,35 +62,32 @@ docker run -i --rm \
 ### 4. Run Chaos Fallback Test
 
 ```bash
-# Option A: Let k6 handle chaos simulation (requires downstream /chaos endpoint)
-docker run -i --rm \
-  --network=irongate-network \
-  -e IRONGATE_URL=http://irongate:8080 \
-  grafana/k6 run - < benchmarks/k6-chaos-fallback.js
+# Source .env if not already done
+source ../.env
 
-# Option B: Manual chaos - run warmup, then manually kill echo container
-# Terminal 1: Run warmup phase only
-docker run -i --rm --network=irongate-network -e IRONGATE_URL=http://irongate:8080 \
-  grafana/k6 run --scenario warmup - < benchmarks/k6-chaos-fallback.js
+# Option A: Manual chaos (recommended) - run warmup, then manually kill echo container
+# Terminal 1: Run warmup phase only (populates cache)
+docker run -i --rm --network=host -e IRONGATE_URL=$IRONGATE_URL \
+  grafana/k6 run --scenario warmup - < k6-chaos-fallback.js
 
 # Terminal 2: Kill echo container to simulate outage
 docker stop iron-gate-echo-1
 
 # Terminal 1: Run chaos phase (fallback should serve)
-docker run -i --rm --network=irongate-network -e IRONGATE_URL=http://irongate:8080 \
-  grafana/k6 run --scenario chaos - < benchmarks/k6-chaos-fallback.js
+docker run -i --rm --network=host -e IRONGATE_URL=$IRONGATE_URL \
+  grafana/k6 run --scenario chaos - < k6-chaos-fallback.js
 
 # Terminal 2: Restart echo container
 docker start iron-gate-echo-1
 
 # Terminal 1: Run recovery phase
-docker run -i --rm --network=irongate-network -e IRONGATE_URL=http://irongate:8080 \
-  grafana/k6 run --scenario recovery - < benchmarks/k6-chaos-fallback.js
+docker run -i --rm --network=host -e IRONGATE_URL=$IRONGATE_URL \
+  grafana/k6 run --scenario recovery - < k6-chaos-fallback.js
 ```
 
 ## Viewing Results in Grafana
 
-1. Open Grafana: http://localhost:3000 (admin/admin)
+1. Open Grafana: http://localhost:3000 (admin / $GRAFANA_ADMIN_PASSWORD from .env)
 2. Go to **Dashboards** → **Browse** → **k6** (if you have k6 dashboard imported)
 3. Or create a new dashboard with Prometheus data source querying:
    - `rate(public_requests_total[1m])` - Request rate
@@ -169,16 +175,22 @@ To add custom scenarios:
 
 ## CI Integration
 
-Run in GitHub Actions:
+Run in GitHub Actions (secrets must be configured in repo settings):
 ```yaml
 - name: Run k6 Load Tests
   run: |
     docker compose up -d
     sleep 30
-    TOKEN=$(curl -s -X POST "http://localhost:8080/realms/master/protocol/openid-connect/token" \
-      -d "username=admin&password=admin&grant_type=password&client_id=irongate-test&client_secret=test-secret" | jq -r .access_token)
-    docker run -i --rm --network=irongate-network \
-      -e IRONGATE_URL=http://irongate:8080 \
+    TOKEN=$(curl -s -X POST "$KEYCLOAK_URL/realms/irongate/protocol/openid-connect/token" \
+      -d "username=$IRONGATE_TEST_USER&password=$IRONGATE_TEST_PASSWORD&grant_type=password&client_id=$IRONGATE_CLIENT_ID&client_secret=$IRONGATE_CLIENT_SECRET" | jq -r .access_token)
+    docker run -i --rm --network=host \
+      -e IRONGATE_URL=http://localhost:8080 \
       -e KEYCLOAK_TOKEN=$TOKEN \
       grafana/k6 run - < benchmarks/k6-throughput-and-ratelimit.js
+  env:
+    KEYCLOAK_URL: ${{ secrets.KEYCLOAK_URL }}
+    IRONGATE_TEST_USER: ${{ secrets.IRONGATE_TEST_USER }}
+    IRONGATE_TEST_PASSWORD: ${{ secrets.IRONGATE_TEST_PASSWORD }}
+    IRONGATE_CLIENT_ID: ${{ secrets.IRONGATE_CLIENT_ID }}
+    IRONGATE_CLIENT_SECRET: ${{ secrets.IRONGATE_CLIENT_SECRET }}
 ```
