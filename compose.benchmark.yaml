@@ -12,6 +12,9 @@ services:
       - ASPNETCORE_URLS=http://+:8080
       - ConnectionStrings__Redis=redis:6379
       - RateLimiting__Redis__ConnectionString=redis:6379
+      - DownstreamSecurity__SharedSecret=${IRONGATE_DOWNSTREAM_SHARED_SECRET}
+      - Admin__ApiKey=${IRONGATE_ADMIN_API_KEY}
+      - Otel__Endpoint=${OTEL_ENDPOINT}
     networks:
       - irongate-network
     depends_on:

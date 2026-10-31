@@ -1,6 +1,5 @@
 using IronGate.Extensions;
 using IronGate.Middleware;
-using Yarp.ReverseProxy.Configuration;
 
 WebApplicationBuilder builder = WebApplication.CreateBuilder(args);
 
@@ -43,4 +42,3 @@ app.MapReverseProxy();
 
 app.Run();
 
-public partial class Program;
