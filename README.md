@@ -26,6 +26,10 @@ IronGate is a production-ready API Gateway that handles authentication, rate lim
 | **Companion Downstream SDK** | ✅ NuGet | ❌ | ❌ | ❌ | ❌ |
 | **Zero-Trust Gateway Verification** | ✅ HMAC | ❌ | ❌ | ❌ | ❌ |
 | **Admin Control Plane** | ✅ /admin/* | ❌ | ❌ | ✅ | ❌ |
+| **Load Shedding & Priority Bypass** | ✅ 500 req / 110% | ❌ | ❌ | ❌ | ❌ |
+| **RFC 6585 Rate Limit Headers** | ✅ X-RateLimit-* | ❌ | ❌ | ✅ | ✅ |
+| **Speculative Hedging (idempotent)** | ✅ Polly v8 | ❌ | ❌ | ❌ | ❌ |
+| **Circuit Breaker + Total Timeout** | ✅ 10s / 50% | ❌ | ❌ | ✅ | ✅ |
 
 ---
 
@@ -121,12 +125,40 @@ Downstream Service (with IronGate.AspNetCore SDK)
 - **Logs**: Loki via OTLP
 - **Dashboards**: Grafana pre-configured
 
-### 3. Partitioned Rate Limiting (Milestone 3)
-| Route | Algorithm | Partition Key | Limits |
-|-------|-----------|---------------|--------|
-| `/api/public/*` | Sliding Window | Client IP | 10 req / 60s |
-| `/api/protected/*` | Token Bucket | JWT `sub` | 20 tokens, refill 5/10s |
-| **Headers** | | | `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`, `Retry-After` |
+### Rate Limiting Lua Script (Redis)
+
+The sliding window algorithm uses a Redis sorted set with timestamps as scores:
+
+```lua
+-- KEYS[1] = partition key
+-- ARGV[1] = window (ms), ARGV[2] = limit, ARGV[3] = now (ms), ARGV[4] = count
+local key = KEYS[1]
+local window = tonumber(ARGV[1])
+local limit = tonumber(ARGV[2])
+local now = tonumber(ARGV[3])
+local count = tonumber(ARGV[4])
+local window_start = now - window
+
+redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start)
+local current = redis.call('ZCARD', key)
+
+if current + count <= limit then
+  for i = 1, count do
+    redis.call('ZADD', key, now, now .. '-' .. i .. '-' .. math.random(1000000))
+  end
+  redis.call('EXPIRE', key, math.ceil(window / 1000) + 1)
+  return {1, limit - current - count, math.ceil((now + window) / 1000), 0}
+else
+  local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
+  local retry_after = 0
+  if #oldest > 0 then
+    retry_after = math.ceil((tonumber(oldest[2]) + window - now) / 1000)
+  end
+  return {0, 0, math.ceil((now + window) / 1000), retry_after}
+end
+```
+
+Atomic operations ensure consistency across multiple gateway instances.
 
 ### 4. Resilience Pipeline (Milestone 4)
 | Feature | Config | Behavior |
@@ -136,6 +168,8 @@ Downstream Service (with IronGate.AspNetCore SDK)
 | **Total Timeout** | `10s` | Caps entire operation including hedged attempts |
 | **Load Balancing** | `PowerOfTwoChoices` | Least-loaded destination selection |
 
+**Implementation**: Polly v8 `ResiliencePipeline` injected via custom `IForwarderHttpClientFactory` wrapping YARP's `SocketsHttpHandler`. Hedging clones request for concurrent attempts; Circuit Breaker fails fast with 503 + `X-IronGate-Circuit-State: Open` header.
+
 ### 5. Cached Static Fallback (Milestone 5)
 | Tier | Source | TTL | Header |
 |------|--------|-----|--------|
@@ -143,6 +177,21 @@ Downstream Service (with IronGate.AspNetCore SDK)
 | **Tier 2** | Redis (L2) | 300s | `X-IronGate-Fallback-Source: cache` |
 | **Tier 3** | Static Config JSON | ∞ | `X-IronGate-Fallback-Source: static-config` |
 | **Trigger** | 5xx from downstream OR 503 from Circuit Breaker | | `X-IronGate-Fallback: true` |
+
+**Architecture**: L1 (in-memory, 30s TTL) for fast hot-path access. L2 (Redis, full TTL) for distributed cache sharing across multiple gateway instances. On cache miss, L2 populates L1. Graceful degradation if Redis unavailable.
+
+**Static Fallback Config** (`appsettings.json`):
+```json
+"FallbackCache": {
+  "Enabled": true,
+  "TtlSeconds": 300,
+  "UseRedis": true,
+  "StaticFallbacks": {
+    "/api/public/echo": "{\"status\":\"degraded\",\"message\":\"Served from IronGate static fallback config\"}"
+  }
+}
+```
+Keys are path-matched; values are raw JSON strings served with `200 OK` + `X-IronGate-Fallback-Source: static-config`.
 
 ### 6. Zero-Trust Gateway Verification (Task 1)
 - **Gateway**: Injects `X-IronGate-Gateway-Secret` (HMAC) into downstream requests
@@ -355,7 +404,32 @@ Admin__ApiKey=your-admin-key
 | `DELETE` | `/admin/cache?path=/api/public/echo` | Evict fallback cache for path (or all if omitted) |
 | `DELETE` | `/admin/ratelimit/public:192.168.1.1` | Reset rate limit for partition key |
 
-All require `X-IronGate-Admin-Key` header matching `Admin:ApiKey`.
+**Auth**: All require `X-IronGate-Admin-Key` header matching `Admin:ApiKey`.
+
+### `/admin/status` Response Example
+```json
+{
+  "timestamp": "2026-10-21T14:30:00Z",
+  "version": "1.0.0",
+  "routes": [
+    { "path": "/api/public/*", "policy": "Anonymous", "rateLimit": "Sliding Window (10/min)" },
+    { "path": "/api/protected/*", "policy": "jwt-required", "rateLimit": "Token Bucket (20 tokens, 5/10s)" }
+  ],
+  "clusters": [
+    { "id": "downstream-echo", "loadBalancing": "PowerOfTwoChoices", "destinations": ["http://localhost:8081/"] }
+  ],
+  "features": {
+    "redisRateLimiting": true,
+    "hedging": { "enabled": true, "delayMs": 50, "maxAttempts": 2 },
+    "circuitBreaker": { "enabled": true, "failureRatio": 0.5, "breakDurationSeconds": 15 },
+    "fallbackCache": { "enabled": true, "ttlSeconds": 300, "useRedis": true },
+    "loadShedding": { "enabled": true, "maxConcurrent": 500 },
+    "zeroTrust": { "enabled": true }
+  },
+  "inFlightRequests": 42,
+  "uptime": "02:15:30"
+}
+```
 
 ---
 
