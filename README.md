@@ -278,7 +278,12 @@ docker compose up -d
 ```bash
 # Starts Redis + Keycloak + Echo in Docker, runs IronGate on host
 docker compose up -d redis keycloak echo
-./run-local.sh  # Sources .env and runs IronGate on http://localhost:8080
+
+# Option A: Use helper script (sources .env automatically)
+./run-local.sh
+
+# Option B: Manual (equivalent to run-local.sh)
+source .env && cd src/IronGate && dotnet run --no-build
 ```
 
 ### 3. Get Keycloak Token
