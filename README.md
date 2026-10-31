@@ -247,50 +247,73 @@ Keys are path-matched; values are raw JSON strings served with `200 OK` + `X-Iro
 
 ## Quickstart
 
-### 1. Spin Up the Stack
+### 1. Clone & Configure
 
 ```bash
-# Clone and start
 git clone https://github.com/suryan-s/IronGate
 cd IronGate
+
+# The .env file is already populated with generated secrets for local development.
+# It's gitignored — safe for your local use only.
+# To regenerate: ./scripts/generate-secrets.sh (or manually with openssl rand -base64)
+```
+
+### 2. Spin Up the Stack (Docker)
+
+```bash
+# Starts: IronGate (8080), Redis (6379), Keycloak (8081), Echo (8082),
+# OTEL Collector, Tempo, Loki, Prometheus, Grafana
 docker compose up -d
 
 # Wait for all services (check: docker compose ps)
-# Keycloak: http://localhost:8080 (admin/admin)
+# Keycloak: http://localhost:8081 (admin / $KEYCLOAK_ADMIN_PASSWORD from .env)
 # IronGate: http://localhost:8080
-# Grafana:  http://localhost:3000 (admin/admin)
+# Grafana:  http://localhost:3000 (admin / $GRAFANA_ADMIN_PASSWORD from .env)
 # Prometheus: http://localhost:9090
 # Tempo:    http://localhost:3200
 ```
 
-### 2. Get Keycloak Token
+**Or run IronGate locally (for development):**
 
 ```bash
-# Using irongate-test client
-TOKEN=$(curl -s -X POST "http://localhost:8080/realms/master/protocol/openid-connect/token" \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "username=admin" \
-  -d "password=admin" \
-  -d "grant_type=password" \
-  -d "client_id=irongate-test" \
-  -d "client_secret=test-secret" | jq -r '.access_token')
+# Starts Redis + Keycloak + Echo in Docker, runs IronGate on host
+docker compose up -d redis keycloak echo
+./run-local.sh  # Sources .env and runs IronGate on http://localhost:8080
 ```
 
-### 3. Test Public Route (Anonymous)
+### 3. Get Keycloak Token
+
+```bash
+# Source .env for credentials, or use the setup script
+source .env
+
+# Using the irongate-test client (configured by setup script)
+TOKEN=$(curl -s -X POST "$KEYCLOAK_URL/realms/irongate/protocol/openid-connect/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=$IRONGATE_TEST_USER" \
+  -d "password=$IRONGATE_TEST_PASSWORD" \
+  -d "grant_type=password" \
+  -d "client_id=$IRONGATE_CLIENT_ID" \
+  -d "client_secret=$IRONGATE_CLIENT_SECRET" | jq -r '.access_token')
+
+echo "Token: $TOKEN"
+```
+
+### 4. Test Public Route (Anonymous)
 
 ```bash
 curl -i http://localhost:8080/api/public/echo
 # 200 OK, x-correlation-id header present
 ```
 
-### 4. Test Protected Route (Authenticated)
+### 5. Test Protected Route (Authenticated)
 
 ```bash
 curl -i -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/protected/echo
 # 200 OK, X-IronGate-User-Id, X-IronGate-Username, X-IronGate-Roles headers
 ```
 
-### 5. Trigger Rate Limiting
+### 6. Trigger Rate Limiting
 
 ```bash
 # Public: 10 req/min
@@ -302,16 +325,16 @@ for i in {1..22}; do curl -s -o /dev/null -w "%{http_code}\n" -H "Authorization:
 # 21st request → 429
 ```
 
-### 6. Test Admin API
+### 7. Test Admin API
 
 ```bash
-# Configure Admin:ApiKey in appsettings.json first
-curl -H "X-IronGate-Admin-Key: your-admin-key" http://localhost:8080/admin/status
+# Admin API key is in .env as IRONGATE_ADMIN_API_KEY
+curl -H "X-IronGate-Admin-Key: $IRONGATE_ADMIN_API_KEY" http://localhost:8080/admin/status
 ```
 
-### 7. Open Grafana
+### 8. Open Grafana
 
-http://localhost:3000 (admin/admin) → Dashboards → IronGate
+http://localhost:3000 (admin / $GRAFANA_ADMIN_PASSWORD from .env) → Dashboards → IronGate
 
 ---
 
